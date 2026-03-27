@@ -2,6 +2,11 @@
 name = "cargotui"
 version = "0.1.0"
 edition = "2024"
+authors = ["Sam Katevatis]
+description = "A TUI for managing rust projects"
+license-file = "LICENSE.txt"
+keywords = ["TUI", "tui", "cargo", "command-line-utilities", "package-manager"]
+categories = ["tui", "command-line-utilities"]
 
 [dependencies]
 ratatui = "0.29"
