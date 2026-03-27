@@ -4,7 +4,7 @@ A terminal user interface for managing Rust projects via Cargo.
 
 ## Overview
 
-cargotui provides an interactive TUI for running common Cargo commands without memorizing CLI flags. It auto-detects Cargo workspaces and displays a searchable menu of available commands.
+cargotui provides an interactive TUI for running common Cargo commands without memorizing CLI flags. It auto-detects Cargo workspaces and displays a menu of commands.
 
 ## Features
 
@@ -17,13 +17,13 @@ cargotui provides an interactive TUI for running common Cargo commands without m
 
 ## Installation
 
-### From source
+### From latest cargo release
 
 ```
 cargo install cargotui
 ```
 
-### From cargo
+### From latest git version
 
 ```
 cargo install --git https://github.com/yourusername/cargotui
@@ -34,7 +34,7 @@ cargo install --git https://github.com/yourusername/cargotui
 Run from any directory containing a Cargo.toml (or a subdirectory of one):
 
 ```
-cargo run
+cargotui
 ```
 
 ## Keybindings
