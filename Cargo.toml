@@ -7,7 +7,7 @@ description = "A TUI for managing rust projects"
 license-file = "LICENSE.txt"
 keywords = ["TUI", "tui", "cargo", "cli", "package-manager"]
 categories = ["command-line-utilities", "development-tools"]
-readme = "README.md
+readme = "README.md"
 repository = "https://github.com/Samarinara/cargotui"
 
 [dependencies]
