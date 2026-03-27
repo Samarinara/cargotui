@@ -6,7 +6,7 @@ authors = ["Sam Katevatis"]
 description = "A TUI for managing rust projects"
 license-file = "LICENSE.txt"
 keywords = ["TUI", "tui", "cargo", "cli", "package-manager"]
-categories = ["tui", "command-line-utilities", "development-tools"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 ratatui = "0.29"
