@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-pub fn render_menu(menu: &MenuState, frame: &mut Frame, area: Rect) {
+pub fn render_menu(menu: &MenuState, frame: &mut Frame, area: Rect, focused: bool) {
     let level: &MenuLevel = match menu.stack.last() {
         Some(l) => l,
         None => return,
@@ -26,8 +26,13 @@ pub fn render_menu(menu: &MenuState, frame: &mut Frame, area: Rect) {
         .map(|node| ListItem::new(node.name))
         .collect();
 
+    let border_style = if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Commands"))
+        .block(Block::default().borders(Borders::ALL).title("Commands").border_style(border_style))
         .highlight_style(
             Style::default()
                 .fg(Color::Yellow)

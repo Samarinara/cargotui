@@ -7,6 +7,12 @@ use crate::ui::input::{InputSpec, InputState};
 use crate::ui::output::OutputBuffer;
 use crossterm::event::{KeyCode, KeyModifiers};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPanel {
+    Menu,
+    Output,
+}
+
 pub enum DepBrowserStatus {
     Loading,
     Loaded,
@@ -116,6 +122,7 @@ pub struct App {
     pub terminal_size: (u16, u16),
     pub metadata_buf: String,
     pub stderr_buf: String,
+    pub focused_panel: FocusedPanel,
 }
 
 pub enum AppMode {
@@ -207,6 +214,7 @@ impl App {
             terminal_size: (80, 24),
             metadata_buf: String::new(),
             stderr_buf: String::new(),
+            focused_panel: FocusedPanel::Menu,
         }
     }
 
@@ -229,6 +237,7 @@ impl App {
         self.current_command = Some(cmd);
         self.runner = Some(handle);
         self.mode = AppMode::Running;
+        self.focused_panel = FocusedPanel::Output;
         Ok(())
     }
 
@@ -302,7 +311,9 @@ impl App {
                 if let Event::Key(key) = event {
                     match key.code {
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if let Some(level) = self.menu.stack.last_mut() {
+                            if self.focused_panel == FocusedPanel::Output {
+                                self.output.scroll_up(1);
+                            } else if let Some(level) = self.menu.stack.last_mut() {
                                 let len = level.nodes.len();
                                 if len > 0 {
                                     if level.selected == 0 {
@@ -314,7 +325,9 @@ impl App {
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if let Some(level) = self.menu.stack.last_mut() {
+                            if self.focused_panel == FocusedPanel::Output {
+                                self.output.scroll_down(1);
+                            } else if let Some(level) = self.menu.stack.last_mut() {
                                 let len = level.nodes.len();
                                 if len > 0 {
                                     level.selected = (level.selected + 1) % len;
@@ -341,6 +354,7 @@ impl App {
                                         CommandAction::Execute(cmd) => {
                                             self.pending_command = Some(cmd);
                                             self.mode = AppMode::Running;
+                                            self.focused_panel = FocusedPanel::Output;
                                         }
                                         CommandAction::RequiresInput(spec, next_action) => {
                                             let ui_spec = InputSpec {
@@ -357,12 +371,14 @@ impl App {
                                                 spec: ui_spec,
                                                 pending_action: next_action,
                                             });
+                                            self.focused_panel = FocusedPanel::Menu;
                                         }
                                         CommandAction::Confirm(action) => {
                                             self.mode = AppMode::Confirm(ConfirmContext {
                                                 message: "Are you sure?".to_string(),
                                                 pending_action: action,
                                             });
+                                            self.focused_panel = FocusedPanel::Menu;
                                         }
                                         CommandAction::BrowseDocs => {
                                             self.metadata_buf.clear();
@@ -386,13 +402,22 @@ impl App {
                                                 pending_action: inner,
                                             });
                                             self.pending_command = Some(CargoCommand::Metadata);
+                                            self.focused_panel = FocusedPanel::Menu;
                                         }
                                     }
                                 }
                             }
                         }
+                        KeyCode::Tab => {
+                            self.focused_panel = match self.focused_panel {
+                                FocusedPanel::Menu => FocusedPanel::Output,
+                                FocusedPanel::Output => FocusedPanel::Menu,
+                            };
+                        }
                         KeyCode::Esc | KeyCode::Char('q') => {
-                            if self.menu.stack.len() > 1 {
+                            if self.focused_panel == FocusedPanel::Output {
+                                self.focused_panel = FocusedPanel::Menu;
+                            } else if self.menu.stack.len() > 1 {
                                 self.menu.stack.pop();
                             } else {
                                 self.should_quit = true;
@@ -400,6 +425,7 @@ impl App {
                         }
                         KeyCode::Char('?') => {
                             self.mode = AppMode::Help;
+                            self.focused_panel = FocusedPanel::Menu;
                         }
                         _ => {}
                     }
@@ -512,12 +538,19 @@ impl App {
                             self.refresh_workspace();
                         }
                         self.mode = AppMode::Menu;
+                        self.focused_panel = FocusedPanel::Menu;
                     }
                     Event::Key(key) => match (key.code, key.modifiers) {
                         (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                             if let Some(runner) = self.runner.take() {
                                 let _ = runner.tx_kill.send(());
                             }
+                        }
+                        (KeyCode::Tab, _) => {
+                            self.focused_panel = match self.focused_panel {
+                                FocusedPanel::Menu => FocusedPanel::Output,
+                                FocusedPanel::Output => FocusedPanel::Menu,
+                            };
                         }
                         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
                             self.output.scroll_down(1);

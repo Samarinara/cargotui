@@ -6,7 +6,7 @@ pub mod menu;
 pub mod output;
 pub mod status_bar;
 
-use crate::app::{App, AppMode};
+use crate::app::{App, AppMode, FocusedPanel};
 use crate_picker::render_crate_picker;
 use dep_browser::render_dep_browser;
 use help::render_help;
@@ -65,8 +65,8 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     if let AppMode::DepBrowser(state) = &app.mode {
         render_dep_browser(state, frame, main_area);
     } else {
-        render_menu(&app.menu, frame, menu_area);
-        render_output(&app.output, frame, output_area);
+        render_menu(&app.menu, frame, menu_area, app.focused_panel == FocusedPanel::Menu);
+        render_output(&app.output, frame, output_area, app.focused_panel == FocusedPanel::Output);
     }
     render_status_bar(app, frame, status_area);
 

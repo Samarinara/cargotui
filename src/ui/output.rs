@@ -95,7 +95,7 @@ impl OutputBuffer {
     }
 }
 
-pub fn render_output(buffer: &OutputBuffer, frame: &mut Frame, area: Rect) {
+pub fn render_output(buffer: &OutputBuffer, frame: &mut Frame, area: Rect, focused: bool) {
     let entry = buffer.history.back();
 
     let mut lines: Vec<Line> = match entry {
@@ -132,7 +132,15 @@ pub fn render_output(buffer: &OutputBuffer, frame: &mut Frame, area: Rect) {
         .filter(|s| !s.is_empty())
         .unwrap_or("Output");
 
-    let block = Block::default().borders(Borders::ALL).title(title);
+    let border_style = if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(border_style);
     let paragraph = Paragraph::new(lines)
         .block(block)
         .scroll((offset as u16, 0));
@@ -193,6 +201,36 @@ mod tests {
             prop_assert_eq!(buffer.auto_scroll, false);
             buffer.scroll_to_bottom();
             prop_assert_eq!(buffer.auto_scroll, true);
+        }
+
+        // Feature: output-scroll, Property 8: Auto-scroll off — new lines do not change scroll offset
+        // Validates: Requirements 5.2
+        #[test]
+        fn prop_autoscroll_off_new_lines_preserve_offset(
+            initial_offset in 0usize..=100usize,
+            lines in proptest::collection::vec("[^\n]*", 1..=20usize)
+        ) {
+            let mut buffer = OutputBuffer::new();
+            buffer.auto_scroll = false;
+            buffer.scroll_offset = initial_offset;
+            for line in lines {
+                buffer.push_line(line);
+            }
+            prop_assert_eq!(buffer.scroll_offset, initial_offset);
+        }
+
+        // Feature: output-scroll, Property 9: Auto-scroll on — new lines keep latest line visible
+        // Validates: Requirements 5.3
+        #[test]
+        fn prop_autoscroll_on_new_lines_keep_bottom(
+            lines in proptest::collection::vec("[^\n]*", 1..=20usize)
+        ) {
+            let mut buffer = OutputBuffer::new();
+            buffer.auto_scroll = true;
+            for line in lines {
+                buffer.push_line(line);
+            }
+            prop_assert_eq!(buffer.scroll_offset, usize::MAX);
         }
     }
 }
