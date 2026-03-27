@@ -1,4 +1,5 @@
 pub mod metadata;
+pub mod publish_validator;
 pub mod runner;
 pub mod workspace;
 
@@ -17,6 +18,7 @@ pub enum CommandAction {
     Confirm(Box<CommandAction>),
     BrowseDocs,
     PickCrate(Box<CommandAction>),
+    Validate,
 }
 
 pub struct InputSpec {
@@ -396,6 +398,11 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                             })),
                         )),
                     ),
+                },
+                CommandNode {
+                    name: "validate",
+                    description: "Check crates.io publishing requirements (offline)",
+                    action: CommandAction::Validate,
                 },
             ]),
         },

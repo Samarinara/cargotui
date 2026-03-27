@@ -185,6 +185,7 @@ fn clone_action(action: &crate::cargo::CommandAction) -> crate::cargo::CommandAc
         CommandAction::Confirm(inner) => CommandAction::Confirm(Box::new(clone_action(inner))),
         CommandAction::BrowseDocs => CommandAction::BrowseDocs,
         CommandAction::PickCrate(inner) => CommandAction::PickCrate(Box::new(clone_action(inner))),
+        CommandAction::Validate => CommandAction::Validate,
     }
 }
 
@@ -403,6 +404,33 @@ impl App {
                                             });
                                             self.pending_command = Some(CargoCommand::Metadata);
                                             self.focused_panel = FocusedPanel::Menu;
+                                        }
+                                        CommandAction::Validate => {
+                                            use crate::cargo::publish_validator::{
+                                                ValidationReport, ValidationResult,
+                                                ValidationStatus, format_report, run_validation,
+                                            };
+                                            let report = match &self.workspace {
+                                                None => ValidationReport {
+                                                    results: vec![ValidationResult {
+                                                        check: "workspace",
+                                                        status: ValidationStatus::Fail,
+                                                        message: "no workspace loaded".to_string(),
+                                                    }],
+                                                },
+                                                Some(ws) => run_validation(&ws.root),
+                                            };
+                                            let lines = format_report(&report);
+                                            self.output.start_command("validate".to_string());
+                                            for line in lines {
+                                                let text: String = line
+                                                    .spans
+                                                    .iter()
+                                                    .map(|s| s.content.as_ref())
+                                                    .collect();
+                                                self.output.push_line(text);
+                                            }
+                                            self.focused_panel = FocusedPanel::Output;
                                         }
                                     }
                                 }
