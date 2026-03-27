@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Sam Katevatis"]
 description = "A TUI for managing rust projects"
 license-file = "LICENSE.txt"
-keywords = ["TUI", "tui", "cargo", "dev-ops", "cli", "package-manager"]
+keywords = ["TUI", "tui", "cargo", "cli", "package-manager"]
 categories = ["tui", "command-line-utilities", "development-tools"]
 
 [dependencies]
