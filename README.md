@@ -8,12 +8,13 @@ cargotui provides an interactive TUI for running common Cargo commands without m
 
 ## Features
 
-- **Build commands**: build, build --release, check, clean
-- **Test commands**: test, test <filter>, test --doc, bench, run, run --bin
+- **Build commands**: build, build --release, build --features, build --target, build --no-default-features, check, clean
+- **Test commands**: test, test <filter>, test --doc, test --no-run, test --ignored, bench, run, run --bin, run --features
 - **Dependency management**: add, remove, update, browse documentation
-- **Publish commands**: package, publish, publish --dry-run, login, yank
-- **Toolchain**: doc, doc --open, metadata
-- **Utilities**: fmt, clippy, fix, tree
+- **Publish commands**: package, publish, publish --dry-run, login, logout, yank
+- **Toolchain**: doc, doc --open, metadata, rustc, rustdoc
+- **Utilities**: fmt, clippy, clippy -- -D warnings, clippy --fix, fix, tree
+- **Advanced**: search, vendor, generate-lockfile, locate-project, verify-project, report future-incompatibilities
 
 ## Installation
 

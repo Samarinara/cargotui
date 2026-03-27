@@ -863,16 +863,55 @@ fn apply_input_to_command(cmd: CargoCommand, value: &str) -> CargoCommand {
         CargoCommand::Test {
             filter: Some(ref f),
             doc,
+            no_run,
+            ignored,
+            extra_args,
         } if f.is_empty() => CargoCommand::Test {
             filter: Some(value.to_string()),
             doc,
+            no_run,
+            ignored,
+            extra_args,
         },
         CargoCommand::Run {
             bin: Some(ref b),
             args,
+            features,
         } if b.is_empty() => CargoCommand::Run {
             bin: Some(value.to_string()),
             args,
+            features,
+        },
+        CargoCommand::Run {
+            bin,
+            args,
+            features: Some(ref f),
+        } if f.is_empty() => CargoCommand::Run {
+            bin,
+            args,
+            features: Some(value.to_string()),
+        },
+        CargoCommand::Build {
+            release,
+            target,
+            features: Some(ref f),
+            no_default_features,
+        } if f.is_empty() => CargoCommand::Build {
+            release,
+            target,
+            features: Some(value.to_string()),
+            no_default_features,
+        },
+        CargoCommand::Build {
+            release,
+            target: Some(ref t),
+            features,
+            no_default_features,
+        } if t.is_empty() => CargoCommand::Build {
+            release,
+            target: Some(value.to_string()),
+            features,
+            no_default_features,
         },
         CargoCommand::Add {
             ref krate,
@@ -914,6 +953,15 @@ fn apply_input_to_command(cmd: CargoCommand, value: &str) -> CargoCommand {
         CargoCommand::Yank { krate, ref version } if version.is_empty() => CargoCommand::Yank {
             krate,
             version: value.to_string(),
+        },
+        CargoCommand::Search { ref query } if query.is_empty() => CargoCommand::Search {
+            query: value.to_string(),
+        },
+        CargoCommand::Rustc { args: Some(ref a) } if a.is_empty() => CargoCommand::Rustc {
+            args: if value.is_empty() { None } else { Some(value.to_string()) },
+        },
+        CargoCommand::Rustdoc { args: Some(ref a) } if a.is_empty() => CargoCommand::Rustdoc {
+            args: if value.is_empty() { None } else { Some(value.to_string()) },
         },
         other => other,
     }
