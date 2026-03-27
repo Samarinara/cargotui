@@ -63,8 +63,13 @@ async fn run(
                 let (output_tx, output_rx) = tokio::sync::mpsc::channel(256);
                 // Recreate event handler with the new output receiver
                 event_handler = EventHandler::new(Some(output_rx));
-                app.output.start_command(format!("{:?}", cmd));
-                let _ = app.launch_command(cmd, &root, output_tx).await;
+                if matches!(app.mode, crate::app::AppMode::DepBrowser(_)) {
+                    // Launching metadata for DepBrowser — don't change mode or touch output panel
+                    let _ = app.launch_metadata_for_dep_browser(&root, output_tx).await;
+                } else {
+                    app.output.start_command(format!("{:?}", cmd));
+                    let _ = app.launch_command(cmd, &root, output_tx).await;
+                }
             }
         }
     }

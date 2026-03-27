@@ -15,6 +15,7 @@ pub enum CommandAction {
     Execute(CargoCommand),
     RequiresInput(InputSpec, Box<CommandAction>),
     Confirm(Box<CommandAction>),
+    BrowseDocs,
 }
 
 pub struct InputSpec {
@@ -317,6 +318,11 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> =
                                 krate: Some(String::new()),
                             })),
                         ),
+                    },
+                    CommandNode {
+                        name: "Browse Docs",
+                        description: "Browse dependencies and open documentation in browser",
+                        action: CommandAction::BrowseDocs,
                     },
                 ]),
             },

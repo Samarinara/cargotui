@@ -59,6 +59,12 @@ fn bindings_for_mode(mode: &AppMode) -> Vec<(&'static str, &'static str)> {
         AppMode::Error(_) => vec![
             ("Esc / q", "Dismiss error"),
         ],
+        AppMode::DepBrowser(_) => vec![
+            ("↑ / k", "Move up"),
+            ("↓ / j", "Move down"),
+            ("Enter", "Open docs in browser"),
+            ("Esc / q", "Go back"),
+        ],
     }
 }
 

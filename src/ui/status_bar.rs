@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use crate::app::{App, AppMode};
+use crate::app::{App, AppMode, DepBrowserStatus};
 
 pub struct KeyBinding {
     pub key: &'static str,
@@ -20,6 +20,7 @@ fn mode_name(mode: &AppMode) -> &'static str {
         AppMode::Help => "Help",
         AppMode::Confirm(_) => "Confirm",
         AppMode::Error(_) => "Error",
+        AppMode::DepBrowser(_) => "Dep Browser",
     }
 }
 
@@ -31,6 +32,11 @@ fn mode_hints(mode: &AppMode) -> &'static str {
         AppMode::Help => "?: Close  Esc/q: Close",
         AppMode::Confirm(_) => "Enter: Confirm  Esc/q: Cancel",
         AppMode::Error(_) => "Esc/q: Dismiss",
+        AppMode::DepBrowser(state) => match &state.status {
+            DepBrowserStatus::Loading => "Loading dependencies…",
+            DepBrowserStatus::Loaded => "↑/↓ navigate  Enter open docs  Esc back",
+            DepBrowserStatus::Error(_) => "Esc back",
+        },
     }
 }
 

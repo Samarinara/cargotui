@@ -1,3 +1,4 @@
+pub mod dep_browser;
 pub mod menu;
 pub mod output;
 pub mod status_bar;
@@ -12,6 +13,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use crate::app::{App, AppMode};
+use dep_browser::render_dep_browser;
 use menu::render_menu;
 use output::render_output;
 use status_bar::render_status_bar;
@@ -58,8 +60,12 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let menu_area = horizontal[0];
     let output_area = horizontal[1];
 
-    render_menu(&app.menu, frame, menu_area);
-    render_output(&app.output, frame, output_area);
+    if let AppMode::DepBrowser(state) = &app.mode {
+        render_dep_browser(state, frame, main_area);
+    } else {
+        render_menu(&app.menu, frame, menu_area);
+        render_output(&app.output, frame, output_area);
+    }
     render_status_bar(app, frame, status_area);
 
     // Overlays

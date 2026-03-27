@@ -2,9 +2,53 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use crate::cargo::workspace::Workspace;
 use crate::cargo::runner::{RunnerHandle, OutputChunk, spawn_cargo};
 use crate::cargo::{CargoCommand, CommandAction, CommandNode, COMMAND_TREE};
+use crate::cargo::metadata::PackageInfo;
 use crate::event::Event;
 use crate::ui::input::{InputSpec, InputState};
 use crate::ui::output::OutputBuffer;
+
+pub enum DepBrowserStatus {
+    Loading,
+    Loaded,
+    Error(String),
+}
+
+pub struct DepBrowserState {
+    pub packages: Vec<PackageInfo>,
+    pub selected: usize,
+    pub status: DepBrowserStatus,
+    pub message: Option<String>,
+}
+
+impl DepBrowserState {
+    pub fn from_packages(mut packages: Vec<PackageInfo>) -> Self {
+        packages.sort_by(|a, b| a.name.cmp(&b.name));
+        DepBrowserState {
+            packages,
+            selected: 0,
+            status: DepBrowserStatus::Loaded,
+            message: None,
+        }
+    }
+
+    pub fn move_down(&mut self) {
+        if self.packages.is_empty() {
+            return;
+        }
+        self.selected = (self.selected + 1) % self.packages.len();
+    }
+
+    pub fn move_up(&mut self) {
+        if self.packages.is_empty() {
+            return;
+        }
+        if self.selected == 0 {
+            self.selected = self.packages.len() - 1;
+        } else {
+            self.selected -= 1;
+        }
+    }
+}
 
 pub struct App {
     pub workspace: Option<Workspace>,
@@ -17,6 +61,8 @@ pub struct App {
     pub pending_command: Option<CargoCommand>,
     pub current_command: Option<CargoCommand>,
     pub terminal_size: (u16, u16),
+    pub metadata_buf: String,
+    pub stderr_buf: String,
 }
 
 pub enum AppMode {
@@ -26,6 +72,7 @@ pub enum AppMode {
     Help,
     Confirm(ConfirmContext),
     Error(String),
+    DepBrowser(DepBrowserState),
 }
 
 pub struct InputContext {
@@ -71,6 +118,7 @@ fn clone_action(action: &crate::cargo::CommandAction) -> crate::cargo::CommandAc
             Box::new(clone_action(next)),
         ),
         CommandAction::Confirm(inner) => CommandAction::Confirm(Box::new(clone_action(inner))),
+        CommandAction::BrowseDocs => CommandAction::BrowseDocs,
     }
 }
 
@@ -101,6 +149,8 @@ impl App {
             pending_command: None,
             current_command: None,
             terminal_size: (80, 24),
+            metadata_buf: String::new(),
+            stderr_buf: String::new(),
         }
     }
 
@@ -123,6 +173,24 @@ impl App {
         self.current_command = Some(cmd);
         self.runner = Some(handle);
         self.mode = AppMode::Running;
+        Ok(())
+    }
+
+    /// Launch `cargo metadata` for the DepBrowser panel without changing `self.mode`.
+    /// Unlike `launch_command`, this does NOT set mode to `AppMode::Running`.
+    pub async fn launch_metadata_for_dep_browser(
+        &mut self,
+        workspace_root: &std::path::Path,
+        output_tx: tokio::sync::mpsc::Sender<OutputChunk>,
+    ) -> std::io::Result<()> {
+        if self.runner.is_some() {
+            return Ok(());
+        }
+        let cmd = CargoCommand::Metadata;
+        let handle = spawn_cargo(&cmd, workspace_root, output_tx).await?;
+        self.current_command = Some(cmd);
+        self.runner = Some(handle);
+        // NOTE: mode is intentionally NOT changed here — stays DepBrowser
         Ok(())
     }
 
@@ -221,6 +289,17 @@ impl App {
                                                 message: "Are you sure?".to_string(),
                                                 pending_action: action,
                                             });
+                                        }
+                                        CommandAction::BrowseDocs => {
+                                            self.metadata_buf.clear();
+                                            self.stderr_buf.clear();
+                                            self.mode = AppMode::DepBrowser(DepBrowserState {
+                                                packages: vec![],
+                                                selected: 0,
+                                                status: DepBrowserStatus::Loading,
+                                                message: None,
+                                            });
+                                            self.pending_command = Some(CargoCommand::Metadata);
                                         }
                                     }
                                 }
@@ -407,6 +486,82 @@ impl App {
                     self.mode = AppMode::Menu;
                 } else {
                     self.mode = mode;
+                }
+            }
+
+            AppMode::DepBrowser(mut state) => {
+                match event {
+                    Event::Output(OutputChunk::Stdout(line)) => {
+                        self.metadata_buf.push_str(&line);
+                        self.metadata_buf.push('\n');
+                        self.mode = AppMode::DepBrowser(state);
+                    }
+                    Event::Output(OutputChunk::Stderr(line)) => {
+                        self.stderr_buf.push_str(&line);
+                        self.stderr_buf.push('\n');
+                        self.mode = AppMode::DepBrowser(state);
+                    }
+                    Event::Output(OutputChunk::Done(status)) => {
+                        self.runner = None;
+                        self.current_command = None;
+                        if !status.success() {
+                            let err_msg = if self.stderr_buf.trim().is_empty() {
+                                "cargo metadata failed".to_string()
+                            } else {
+                                self.stderr_buf.trim().to_string()
+                            };
+                            state.status = DepBrowserStatus::Error(err_msg);
+                            self.mode = AppMode::DepBrowser(state);
+                        } else {
+                            match crate::cargo::metadata::parse_metadata(&self.metadata_buf) {
+                                Ok(tree) => {
+                                    let new_state = DepBrowserState::from_packages(tree.packages);
+                                    self.mode = AppMode::DepBrowser(new_state);
+                                }
+                                Err(err_msg) => {
+                                    state.status = DepBrowserStatus::Error(err_msg);
+                                    self.mode = AppMode::DepBrowser(state);
+                                }
+                            }
+                        }
+                    }
+                    Event::Key(key) => {
+                        match key.code {
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                state.move_down();
+                                self.mode = AppMode::DepBrowser(state);
+                            }
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                state.move_up();
+                                self.mode = AppMode::DepBrowser(state);
+                            }
+                            KeyCode::Enter => {
+                                if !state.packages.is_empty() {
+                                    let pkg = &state.packages[state.selected];
+                                    let url = crate::ui::dep_browser::build_doc_url(&pkg.name, &pkg.version);
+                                    let success_msg = crate::ui::dep_browser::format_open_success_message(&pkg.name, &pkg.version);
+                                    match crate::ui::dep_browser::open_url(&url) {
+                                        Ok(()) => {
+                                            state.message = Some(success_msg);
+                                        }
+                                        Err(err) => {
+                                            state.message = Some(format!("Failed to open browser: {err}"));
+                                        }
+                                    }
+                                }
+                                self.mode = AppMode::DepBrowser(state);
+                            }
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                self.mode = AppMode::Menu;
+                            }
+                            _ => {
+                                self.mode = AppMode::DepBrowser(state);
+                            }
+                        }
+                    }
+                    _ => {
+                        self.mode = AppMode::DepBrowser(state);
+                    }
                 }
             }
         }
