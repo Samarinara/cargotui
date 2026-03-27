@@ -1,3 +1,4 @@
+use crate::app::{App, AppMode, CratePickerStatus, DepBrowserStatus};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -5,7 +6,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use crate::app::{App, AppMode, DepBrowserStatus};
 
 pub struct KeyBinding {
     pub key: &'static str,
@@ -21,6 +21,7 @@ fn mode_name(mode: &AppMode) -> &'static str {
         AppMode::Confirm(_) => "Confirm",
         AppMode::Error(_) => "Error",
         AppMode::DepBrowser(_) => "Dep Browser",
+        AppMode::CratePicker(_) => "Crate Picker",
     }
 }
 
@@ -36,6 +37,11 @@ fn mode_hints(mode: &AppMode) -> &'static str {
             DepBrowserStatus::Loading => "Loading dependencies…",
             DepBrowserStatus::Loaded => "↑/↓ navigate  Enter open docs  Esc back",
             DepBrowserStatus::Error(_) => "Esc back",
+        },
+        AppMode::CratePicker(state) => match &state.status {
+            CratePickerStatus::Loading => "Loading…",
+            CratePickerStatus::Loaded => "↑↓/jk: Navigate  Enter: Select  Esc: Cancel",
+            CratePickerStatus::Error(_) => "Esc: Cancel",
         },
     }
 }

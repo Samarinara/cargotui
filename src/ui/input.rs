@@ -107,17 +107,15 @@ pub fn render_input(state: &InputState, frame: &mut Frame, area: Rect) {
         ])
     };
 
-    let input_widget = Paragraph::new(input_line)
-        .block(Block::default().borders(Borders::ALL).title("Input"));
+    let input_widget =
+        Paragraph::new(input_line).block(Block::default().borders(Borders::ALL).title("Input"));
 
     frame.render_widget(input_widget, input_area);
 
     // Render error message if present
     if let Some(err) = &state.error {
-        let error_widget = Paragraph::new(Span::styled(
-            err.as_str(),
-            Style::default().fg(Color::Red),
-        ));
+        let error_widget =
+            Paragraph::new(Span::styled(err.as_str(), Style::default().fg(Color::Red)));
         frame.render_widget(error_widget, error_area);
     }
 }

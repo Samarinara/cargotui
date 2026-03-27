@@ -1,3 +1,4 @@
+use crate::app::{MenuLevel, MenuState};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -5,7 +6,6 @@ use ratatui::{
     text::Text,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
-use crate::app::{MenuLevel, MenuState};
 
 pub fn render_menu(menu: &MenuState, frame: &mut Frame, area: Rect) {
     let level: &MenuLevel = match menu.stack.last() {

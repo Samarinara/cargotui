@@ -1,10 +1,18 @@
+pub mod crate_picker;
 pub mod dep_browser;
+pub mod help;
+pub mod input;
 pub mod menu;
 pub mod output;
 pub mod status_bar;
-pub mod input;
-pub mod help;
 
+use crate::app::{App, AppMode};
+use crate_picker::render_crate_picker;
+use dep_browser::render_dep_browser;
+use help::render_help;
+use input::render_input;
+use menu::render_menu;
+use output::render_output;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -12,13 +20,7 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use crate::app::{App, AppMode};
-use dep_browser::render_dep_browser;
-use menu::render_menu;
-use output::render_output;
 use status_bar::render_status_bar;
-use input::render_input;
-use help::render_help;
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
@@ -89,13 +91,13 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 Line::from(""),
                 Line::from("Enter: Confirm   Esc/q: Cancel"),
             ])
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Confirm"),
-            )
+            .block(Block::default().borders(Borders::ALL).title("Confirm"))
             .style(Style::default().fg(Color::White).bg(Color::Black));
             frame.render_widget(paragraph, overlay);
+        }
+        AppMode::CratePicker(state) => {
+            let overlay = centered_rect(70, 70, full_area);
+            render_crate_picker(state, frame, overlay);
         }
         _ => {}
     }

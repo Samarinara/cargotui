@@ -44,7 +44,11 @@ pub fn find_workspace(start: &Path) -> Result<Workspace, String> {
         }
         match current.parent() {
             Some(parent) => current = parent.to_path_buf(),
-            None => return Err("No Cargo.toml found in current directory or any parent directory".to_string()),
+            None => {
+                return Err(
+                    "No Cargo.toml found in current directory or any parent directory".to_string(),
+                );
+            }
         }
     }
 }
@@ -159,9 +163,9 @@ fn parse_bin_targets(value: &Value) -> Vec<BinaryTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::fs;
     use std::io::Write;
-    use proptest::prelude::*;
 
     fn write_toml(dir: &Path, content: &str) {
         let path = dir.join("Cargo.toml");
@@ -172,12 +176,15 @@ mod tests {
     #[test]
     fn test_find_workspace_in_current_dir() {
         let dir = tempfile::tempdir().unwrap();
-        write_toml(dir.path(), r#"
+        write_toml(
+            dir.path(),
+            r#"
 [package]
 name = "myapp"
 version = "0.1.0"
 edition = "2021"
-"#);
+"#,
+        );
         let ws = find_workspace(dir.path()).unwrap();
         assert_eq!(ws.root, dir.path());
         assert_eq!(ws.manifest.name, "myapp");
@@ -186,12 +193,15 @@ edition = "2021"
     #[test]
     fn test_find_workspace_in_parent_dir() {
         let dir = tempfile::tempdir().unwrap();
-        write_toml(dir.path(), r#"
+        write_toml(
+            dir.path(),
+            r#"
 [package]
 name = "parent_pkg"
 version = "0.1.0"
 edition = "2021"
-"#);
+"#,
+        );
         let child = dir.path().join("sub").join("deep");
         fs::create_dir_all(&child).unwrap();
         let ws = find_workspace(&child).unwrap();
@@ -211,7 +221,9 @@ edition = "2021"
     #[test]
     fn test_parse_dependencies() {
         let dir = tempfile::tempdir().unwrap();
-        write_toml(dir.path(), r#"
+        write_toml(
+            dir.path(),
+            r#"
 [package]
 name = "deptest"
 version = "0.1.0"
@@ -226,7 +238,8 @@ proptest = "1"
 
 [build-dependencies]
 cc = "1.0"
-"#);
+"#,
+        );
         let ws = find_workspace(dir.path()).unwrap();
         let m = &ws.manifest;
         assert_eq!(m.dependencies.len(), 2);
@@ -250,10 +263,13 @@ cc = "1.0"
     #[test]
     fn test_parse_workspace_members() {
         let dir = tempfile::tempdir().unwrap();
-        write_toml(dir.path(), r#"
+        write_toml(
+            dir.path(),
+            r#"
 [workspace]
 members = ["crate-a", "crate-b"]
-"#);
+"#,
+        );
         let ws = find_workspace(dir.path()).unwrap();
         assert_eq!(ws.manifest.members, vec!["crate-a", "crate-b"]);
     }
@@ -261,7 +277,9 @@ members = ["crate-a", "crate-b"]
     #[test]
     fn test_parse_bin_targets() {
         let dir = tempfile::tempdir().unwrap();
-        write_toml(dir.path(), r#"
+        write_toml(
+            dir.path(),
+            r#"
 [package]
 name = "multibin"
 version = "0.1.0"
@@ -274,7 +292,8 @@ path = "src/bin/server.rs"
 [[bin]]
 name = "client"
 path = "src/bin/client.rs"
-"#);
+"#,
+        );
         let ws = find_workspace(dir.path()).unwrap();
         assert_eq!(ws.manifest.binaries.len(), 2);
         assert!(ws.manifest.binaries.iter().any(|b| b.name == "server"));

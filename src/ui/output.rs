@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-use std::process::ExitStatus;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -7,6 +5,8 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
+use std::collections::VecDeque;
+use std::process::ExitStatus;
 
 pub struct OutputBuffer {
     pub history: VecDeque<CommandOutput>,
@@ -150,10 +150,8 @@ pub fn render_output(buffer: &OutputBuffer, frame: &mut Frame, area: Rect) {
                 width: indicator_len,
                 height: 1,
             };
-            let indicator_widget = Paragraph::new(Span::styled(
-                indicator,
-                Style::default().fg(Color::Yellow),
-            ));
+            let indicator_widget =
+                Paragraph::new(Span::styled(indicator, Style::default().fg(Color::Yellow)));
             frame.render_widget(indicator_widget, indicator_area);
         }
     }

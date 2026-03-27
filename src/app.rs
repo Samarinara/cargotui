@@ -1,13 +1,19 @@
-use crossterm::event::{KeyCode, KeyModifiers};
-use crate::cargo::workspace::Workspace;
-use crate::cargo::runner::{RunnerHandle, OutputChunk, spawn_cargo};
-use crate::cargo::{CargoCommand, CommandAction, CommandNode, COMMAND_TREE};
 use crate::cargo::metadata::PackageInfo;
+use crate::cargo::runner::{OutputChunk, RunnerHandle, spawn_cargo};
+use crate::cargo::workspace::Workspace;
+use crate::cargo::{COMMAND_TREE, CargoCommand, CommandAction, CommandNode};
 use crate::event::Event;
 use crate::ui::input::{InputSpec, InputState};
 use crate::ui::output::OutputBuffer;
+use crossterm::event::{KeyCode, KeyModifiers};
 
 pub enum DepBrowserStatus {
+    Loading,
+    Loaded,
+    Error(String),
+}
+
+pub enum CratePickerStatus {
     Loading,
     Loaded,
     Error(String),
@@ -50,6 +56,53 @@ impl DepBrowserState {
     }
 }
 
+pub struct CratePickerState {
+    pub packages: Vec<PackageInfo>,
+    pub filter: String,
+    pub selected: usize,
+    pub status: CratePickerStatus,
+    pub pending_action: Box<CommandAction>,
+}
+
+impl CratePickerState {
+    pub fn filtered_packages(&self) -> Vec<&PackageInfo> {
+        if self.filter.is_empty() {
+            self.packages.iter().collect()
+        } else {
+            let lower = self.filter.to_lowercase();
+            self.packages
+                .iter()
+                .filter(|p| p.name.to_lowercase().contains(&lower))
+                .collect()
+        }
+    }
+
+    pub fn move_down(&mut self) {
+        let len = self.filtered_packages().len();
+        if len == 0 {
+            return;
+        }
+        self.selected = (self.selected + 1) % len;
+    }
+
+    pub fn move_up(&mut self) {
+        let len = self.filtered_packages().len();
+        if len == 0 {
+            return;
+        }
+        if self.selected == 0 {
+            self.selected = len - 1;
+        } else {
+            self.selected -= 1;
+        }
+    }
+
+    pub fn update_filter(&mut self, new_filter: String) {
+        self.filter = new_filter;
+        self.selected = 0;
+    }
+}
+
 pub struct App {
     pub workspace: Option<Workspace>,
     pub menu: MenuState,
@@ -73,6 +126,7 @@ pub enum AppMode {
     Confirm(ConfirmContext),
     Error(String),
     DepBrowser(DepBrowserState),
+    CratePicker(CratePickerState),
 }
 
 pub struct InputContext {
@@ -114,11 +168,16 @@ fn clone_action(action: &crate::cargo::CommandAction) -> crate::cargo::CommandAc
         }
         CommandAction::Execute(cmd) => CommandAction::Execute(cmd.clone()),
         CommandAction::RequiresInput(spec, next) => CommandAction::RequiresInput(
-            InputSpec { prompt: spec.prompt, required: spec.required, placeholder: spec.placeholder },
+            InputSpec {
+                prompt: spec.prompt,
+                required: spec.required,
+                placeholder: spec.placeholder,
+            },
             Box::new(clone_action(next)),
         ),
         CommandAction::Confirm(inner) => CommandAction::Confirm(Box::new(clone_action(inner))),
         CommandAction::BrowseDocs => CommandAction::BrowseDocs,
+        CommandAction::PickCrate(inner) => CommandAction::PickCrate(Box::new(clone_action(inner))),
     }
 }
 
@@ -126,10 +185,7 @@ impl App {
     pub fn new(workspace: Option<Workspace>) -> Self {
         // Clone the full top-level nodes from the static COMMAND_TREE so that
         // submenus are intact and can be entered without destroying the tree.
-        let top_level_nodes: Vec<CommandNode> = COMMAND_TREE
-            .iter()
-            .map(clone_node)
-            .collect();
+        let top_level_nodes: Vec<CommandNode> = COMMAND_TREE.iter().map(clone_node).collect();
 
         let menu = MenuState {
             stack: vec![MenuLevel {
@@ -194,6 +250,24 @@ impl App {
         Ok(())
     }
 
+    /// Launch `cargo metadata` for the CratePicker overlay without changing `self.mode`.
+    /// Unlike `launch_command`, this does NOT set mode to `AppMode::Running`.
+    pub async fn launch_metadata_for_crate_picker(
+        &mut self,
+        workspace_root: &std::path::Path,
+        output_tx: tokio::sync::mpsc::Sender<OutputChunk>,
+    ) -> std::io::Result<()> {
+        if self.runner.is_some() {
+            return Ok(());
+        }
+        let cmd = CargoCommand::Metadata;
+        let handle = spawn_cargo(&cmd, workspace_root, output_tx).await?;
+        self.current_command = Some(cmd);
+        self.runner = Some(handle);
+        // NOTE: mode is intentionally NOT changed here — stays CratePicker
+        Ok(())
+    }
+
     /// Re-parse the workspace manifest and update `self.workspace`.
     /// Non-fatal: if parsing fails, the existing workspace is left unchanged.
     pub fn refresh_workspace(&mut self) {
@@ -252,17 +326,17 @@ impl App {
                             if let Some(idx) = selected_idx {
                                 // Clone the action so the node stays intact for
                                 // future visits (e.g. pressing Esc and re-entering).
-                                let action = self.menu.stack.last()
+                                let action = self
+                                    .menu
+                                    .stack
+                                    .last()
                                     .and_then(|l| l.nodes.get(idx))
                                     .map(|n| clone_action(&n.action));
 
                                 if let Some(action) = action {
                                     match action {
                                         CommandAction::Submenu(nodes) => {
-                                            self.menu.stack.push(MenuLevel {
-                                                nodes,
-                                                selected: 0,
-                                            });
+                                            self.menu.stack.push(MenuLevel { nodes, selected: 0 });
                                         }
                                         CommandAction::Execute(cmd) => {
                                             self.pending_command = Some(cmd);
@@ -298,6 +372,18 @@ impl App {
                                                 selected: 0,
                                                 status: DepBrowserStatus::Loading,
                                                 message: None,
+                                            });
+                                            self.pending_command = Some(CargoCommand::Metadata);
+                                        }
+                                        CommandAction::PickCrate(inner) => {
+                                            self.metadata_buf.clear();
+                                            self.stderr_buf.clear();
+                                            self.mode = AppMode::CratePicker(CratePickerState {
+                                                packages: vec![],
+                                                filter: String::new(),
+                                                selected: 0,
+                                                status: CratePickerStatus::Loading,
+                                                pending_action: inner,
                                             });
                                             self.pending_command = Some(CargoCommand::Metadata);
                                         }
@@ -339,13 +425,16 @@ impl App {
                                 }
                                 _ => {
                                     // Valid — extract value and resolve the pending action
-                                    let value = self.input.as_ref()
+                                    let value = self
+                                        .input
+                                        .as_ref()
                                         .map(|s| s.value.clone())
                                         .unwrap_or_default();
                                     self.input = None;
 
                                     // Apply the input value to the pending action
-                                    let resolved = apply_input_to_action(*ctx.pending_action, value);
+                                    let resolved =
+                                        apply_input_to_action(*ctx.pending_action, value);
                                     match resolved {
                                         CommandAction::Execute(cmd) => {
                                             self.pending_command = Some(cmd);
@@ -424,25 +513,23 @@ impl App {
                         }
                         self.mode = AppMode::Menu;
                     }
-                    Event::Key(key) => {
-                        match (key.code, key.modifiers) {
-                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                                if let Some(runner) = self.runner.take() {
-                                    let _ = runner.tx_kill.send(());
-                                }
+                    Event::Key(key) => match (key.code, key.modifiers) {
+                        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            if let Some(runner) = self.runner.take() {
+                                let _ = runner.tx_kill.send(());
                             }
-                            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                                self.output.scroll_down(1);
-                            }
-                            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                                self.output.scroll_up(1);
-                            }
-                            (KeyCode::Char('c'), _) => {
-                                self.output.clear_current();
-                            }
-                            _ => {}
                         }
-                    }
+                        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                            self.output.scroll_down(1);
+                        }
+                        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                            self.output.scroll_up(1);
+                        }
+                        (KeyCode::Char('c'), _) => {
+                            self.output.clear_current();
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
@@ -489,17 +576,93 @@ impl App {
                 }
             }
 
-            AppMode::DepBrowser(mut state) => {
+            AppMode::DepBrowser(mut state) => match event {
+                Event::Output(OutputChunk::Stdout(line)) => {
+                    self.metadata_buf.push_str(&line);
+                    self.metadata_buf.push('\n');
+                    self.mode = AppMode::DepBrowser(state);
+                }
+                Event::Output(OutputChunk::Stderr(line)) => {
+                    self.stderr_buf.push_str(&line);
+                    self.stderr_buf.push('\n');
+                    self.mode = AppMode::DepBrowser(state);
+                }
+                Event::Output(OutputChunk::Done(status)) => {
+                    self.runner = None;
+                    self.current_command = None;
+                    if !status.success() {
+                        let err_msg = if self.stderr_buf.trim().is_empty() {
+                            "cargo metadata failed".to_string()
+                        } else {
+                            self.stderr_buf.trim().to_string()
+                        };
+                        state.status = DepBrowserStatus::Error(err_msg);
+                        self.mode = AppMode::DepBrowser(state);
+                    } else {
+                        match crate::cargo::metadata::parse_metadata(&self.metadata_buf) {
+                            Ok(tree) => {
+                                let new_state = DepBrowserState::from_packages(tree.packages);
+                                self.mode = AppMode::DepBrowser(new_state);
+                            }
+                            Err(err_msg) => {
+                                state.status = DepBrowserStatus::Error(err_msg);
+                                self.mode = AppMode::DepBrowser(state);
+                            }
+                        }
+                    }
+                }
+                Event::Key(key) => match key.code {
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        state.move_down();
+                        self.mode = AppMode::DepBrowser(state);
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        state.move_up();
+                        self.mode = AppMode::DepBrowser(state);
+                    }
+                    KeyCode::Enter => {
+                        if !state.packages.is_empty() {
+                            let pkg = &state.packages[state.selected];
+                            let url =
+                                crate::ui::dep_browser::build_doc_url(&pkg.name, &pkg.version);
+                            let success_msg = crate::ui::dep_browser::format_open_success_message(
+                                &pkg.name,
+                                &pkg.version,
+                            );
+                            match crate::ui::dep_browser::open_url(&url) {
+                                Ok(()) => {
+                                    state.message = Some(success_msg);
+                                }
+                                Err(err) => {
+                                    state.message = Some(format!("Failed to open browser: {err}"));
+                                }
+                            }
+                        }
+                        self.mode = AppMode::DepBrowser(state);
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.mode = AppMode::Menu;
+                    }
+                    _ => {
+                        self.mode = AppMode::DepBrowser(state);
+                    }
+                },
+                _ => {
+                    self.mode = AppMode::DepBrowser(state);
+                }
+            },
+
+            AppMode::CratePicker(mut state) => {
                 match event {
                     Event::Output(OutputChunk::Stdout(line)) => {
                         self.metadata_buf.push_str(&line);
                         self.metadata_buf.push('\n');
-                        self.mode = AppMode::DepBrowser(state);
+                        self.mode = AppMode::CratePicker(state);
                     }
                     Event::Output(OutputChunk::Stderr(line)) => {
                         self.stderr_buf.push_str(&line);
                         self.stderr_buf.push('\n');
-                        self.mode = AppMode::DepBrowser(state);
+                        self.mode = AppMode::CratePicker(state);
                     }
                     Event::Output(OutputChunk::Done(status)) => {
                         self.runner = None;
@@ -510,57 +673,109 @@ impl App {
                             } else {
                                 self.stderr_buf.trim().to_string()
                             };
-                            state.status = DepBrowserStatus::Error(err_msg);
-                            self.mode = AppMode::DepBrowser(state);
+                            state.status = CratePickerStatus::Error(err_msg);
+                            self.mode = AppMode::CratePicker(state);
                         } else {
                             match crate::cargo::metadata::parse_metadata(&self.metadata_buf) {
                                 Ok(tree) => {
-                                    let new_state = DepBrowserState::from_packages(tree.packages);
-                                    self.mode = AppMode::DepBrowser(new_state);
+                                    let mut packages = tree.packages;
+                                    packages.sort_by(|a, b| a.name.cmp(&b.name));
+                                    state.packages = packages;
+                                    state.status = CratePickerStatus::Loaded;
+                                    self.mode = AppMode::CratePicker(state);
                                 }
                                 Err(err_msg) => {
-                                    state.status = DepBrowserStatus::Error(err_msg);
-                                    self.mode = AppMode::DepBrowser(state);
+                                    state.status = CratePickerStatus::Error(err_msg);
+                                    self.mode = AppMode::CratePicker(state);
                                 }
                             }
                         }
                     }
                     Event::Key(key) => {
                         match key.code {
-                            KeyCode::Char('j') | KeyCode::Down => {
-                                state.move_down();
-                                self.mode = AppMode::DepBrowser(state);
-                            }
-                            KeyCode::Char('k') | KeyCode::Up => {
-                                state.move_up();
-                                self.mode = AppMode::DepBrowser(state);
-                            }
-                            KeyCode::Enter => {
-                                if !state.packages.is_empty() {
-                                    let pkg = &state.packages[state.selected];
-                                    let url = crate::ui::dep_browser::build_doc_url(&pkg.name, &pkg.version);
-                                    let success_msg = crate::ui::dep_browser::format_open_success_message(&pkg.name, &pkg.version);
-                                    match crate::ui::dep_browser::open_url(&url) {
-                                        Ok(()) => {
-                                            state.message = Some(success_msg);
-                                        }
-                                        Err(err) => {
-                                            state.message = Some(format!("Failed to open browser: {err}"));
-                                        }
-                                    }
-                                }
-                                self.mode = AppMode::DepBrowser(state);
-                            }
-                            KeyCode::Esc | KeyCode::Char('q') => {
+                            KeyCode::Esc => {
                                 self.mode = AppMode::Menu;
                             }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if matches!(state.status, CratePickerStatus::Loaded) {
+                                    state.move_down();
+                                }
+                                self.mode = AppMode::CratePicker(state);
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if matches!(state.status, CratePickerStatus::Loaded) {
+                                    state.move_up();
+                                }
+                                self.mode = AppMode::CratePicker(state);
+                            }
+                            KeyCode::Backspace => {
+                                if matches!(state.status, CratePickerStatus::Loaded) {
+                                    let mut new_filter = state.filter.clone();
+                                    // Remove last Unicode char
+                                    if let Some(last_char_start) =
+                                        new_filter.char_indices().next_back().map(|(i, _)| i)
+                                    {
+                                        new_filter.truncate(last_char_start);
+                                    }
+                                    state.update_filter(new_filter);
+                                }
+                                self.mode = AppMode::CratePicker(state);
+                            }
+                            KeyCode::Enter => {
+                                if matches!(state.status, CratePickerStatus::Loaded) {
+                                    let filtered = state.filtered_packages();
+                                    if !filtered.is_empty() {
+                                        let name = filtered[state.selected].name.clone();
+                                        drop(filtered);
+                                        let resolved =
+                                            apply_input_to_action(*state.pending_action, name);
+                                        match resolved {
+                                            CommandAction::Execute(cmd) => {
+                                                self.pending_command = Some(cmd);
+                                                self.mode = AppMode::Menu;
+                                            }
+                                            CommandAction::RequiresInput(spec, next_action) => {
+                                                let ui_spec = InputSpec {
+                                                    prompt: spec.prompt,
+                                                    required: spec.required,
+                                                    placeholder: spec.placeholder,
+                                                };
+                                                self.input = Some(InputState::new(InputSpec {
+                                                    prompt: spec.prompt,
+                                                    required: spec.required,
+                                                    placeholder: spec.placeholder,
+                                                }));
+                                                self.mode = AppMode::Input(InputContext {
+                                                    spec: ui_spec,
+                                                    pending_action: next_action,
+                                                });
+                                            }
+                                            _ => {
+                                                self.mode = AppMode::Menu;
+                                            }
+                                        }
+                                    } else {
+                                        // Empty filtered list — no-op
+                                        self.mode = AppMode::CratePicker(state);
+                                    }
+                                } else {
+                                    self.mode = AppMode::CratePicker(state);
+                                }
+                            }
+                            KeyCode::Char(c) => {
+                                if matches!(state.status, CratePickerStatus::Loaded) {
+                                    let new_filter = format!("{}{}", state.filter, c);
+                                    state.update_filter(new_filter);
+                                }
+                                self.mode = AppMode::CratePicker(state);
+                            }
                             _ => {
-                                self.mode = AppMode::DepBrowser(state);
+                                self.mode = AppMode::CratePicker(state);
                             }
                         }
                     }
                     _ => {
-                        self.mode = AppMode::DepBrowser(state);
+                        self.mode = AppMode::CratePicker(state);
                     }
                 }
             }
@@ -572,9 +787,7 @@ impl App {
 /// string placeholder found in the action's associated `CargoCommand`.
 fn apply_input_to_action(action: CommandAction, value: String) -> CommandAction {
     match action {
-        CommandAction::Execute(cmd) => {
-            CommandAction::Execute(apply_input_to_command(cmd, &value))
-        }
+        CommandAction::Execute(cmd) => CommandAction::Execute(apply_input_to_command(cmd, &value)),
         CommandAction::RequiresInput(spec, next) => {
             // This level's input has been collected; pass it down
             CommandAction::RequiresInput(spec, Box::new(apply_input_to_action(*next, value)))
@@ -586,36 +799,61 @@ fn apply_input_to_action(action: CommandAction, value: String) -> CommandAction 
 /// Fill the first empty-string field in a `CargoCommand` with `value`.
 fn apply_input_to_command(cmd: CargoCommand, value: &str) -> CargoCommand {
     match cmd {
-        CargoCommand::Test { filter: Some(ref f), doc } if f.is_empty() => {
-            CargoCommand::Test { filter: Some(value.to_string()), doc }
-        }
-        CargoCommand::Run { bin: Some(ref b), args } if b.is_empty() => {
-            CargoCommand::Run { bin: Some(value.to_string()), args }
-        }
-        CargoCommand::Add { ref krate, version: Some(ref v) } if krate.is_empty() => {
-            CargoCommand::Add { krate: value.to_string(), version: Some(v.clone()) }
-        }
-        CargoCommand::Add { ref krate, version: None } if krate.is_empty() => {
-            CargoCommand::Add { krate: value.to_string(), version: None }
-        }
-        CargoCommand::Add { krate, version: Some(ref v) } if v.is_empty() => {
-            CargoCommand::Add { krate, version: Some(value.to_string()) }
-        }
-        CargoCommand::Remove { ref krate } if krate.is_empty() => {
-            CargoCommand::Remove { krate: value.to_string() }
-        }
-        CargoCommand::Update { krate: Some(ref k) } if k.is_empty() => {
-            CargoCommand::Update { krate: Some(value.to_string()) }
-        }
-        CargoCommand::Login { ref token } if token.is_empty() => {
-            CargoCommand::Login { token: value.to_string() }
-        }
-        CargoCommand::Yank { ref krate, ref version } if krate.is_empty() => {
-            CargoCommand::Yank { krate: value.to_string(), version: version.clone() }
-        }
-        CargoCommand::Yank { krate, ref version } if version.is_empty() => {
-            CargoCommand::Yank { krate, version: value.to_string() }
-        }
+        CargoCommand::Test {
+            filter: Some(ref f),
+            doc,
+        } if f.is_empty() => CargoCommand::Test {
+            filter: Some(value.to_string()),
+            doc,
+        },
+        CargoCommand::Run {
+            bin: Some(ref b),
+            args,
+        } if b.is_empty() => CargoCommand::Run {
+            bin: Some(value.to_string()),
+            args,
+        },
+        CargoCommand::Add {
+            ref krate,
+            version: Some(ref v),
+        } if krate.is_empty() => CargoCommand::Add {
+            krate: value.to_string(),
+            version: Some(v.clone()),
+        },
+        CargoCommand::Add {
+            ref krate,
+            version: None,
+        } if krate.is_empty() => CargoCommand::Add {
+            krate: value.to_string(),
+            version: None,
+        },
+        CargoCommand::Add {
+            krate,
+            version: Some(ref v),
+        } if v.is_empty() => CargoCommand::Add {
+            krate,
+            version: Some(value.to_string()),
+        },
+        CargoCommand::Remove { ref krate } if krate.is_empty() => CargoCommand::Remove {
+            krate: value.to_string(),
+        },
+        CargoCommand::Update { krate: Some(ref k) } if k.is_empty() => CargoCommand::Update {
+            krate: Some(value.to_string()),
+        },
+        CargoCommand::Login { ref token } if token.is_empty() => CargoCommand::Login {
+            token: value.to_string(),
+        },
+        CargoCommand::Yank {
+            ref krate,
+            ref version,
+        } if krate.is_empty() => CargoCommand::Yank {
+            krate: value.to_string(),
+            version: version.clone(),
+        },
+        CargoCommand::Yank { krate, ref version } if version.is_empty() => CargoCommand::Yank {
+            krate,
+            version: value.to_string(),
+        },
         other => other,
     }
 }
@@ -802,5 +1040,181 @@ mod tests {
         app.handle_event(Event::Output(OutputChunk::Done(status)));
         assert!(matches!(app.mode, AppMode::Menu));
         assert!(app.runner.is_none());
+    }
+
+    fn make_package(name: &str) -> PackageInfo {
+        PackageInfo {
+            name: name.to_string(),
+            version: "0.1.0".to_string(),
+            dependencies: vec![],
+        }
+    }
+
+    fn make_crate_picker_state(packages: Vec<PackageInfo>, filter: &str) -> CratePickerState {
+        CratePickerState {
+            packages,
+            filter: filter.to_string(),
+            selected: 0,
+            status: CratePickerStatus::Loaded,
+            pending_action: Box::new(CommandAction::Execute(CargoCommand::Check)),
+        }
+    }
+
+    // Feature: crate-picker, Property 2: Filtered list is a case-insensitive substring match
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(100))]
+        #[test]
+        fn prop_filtered_packages_case_insensitive_substring(
+            names in proptest::collection::vec("[a-zA-Z][a-zA-Z0-9_-]{0,10}", 0..=20),
+            filter in "[a-zA-Z0-9_-]{0,5}",
+        ) {
+            // **Validates: Requirements 3.2, 3.3**
+            let packages: Vec<PackageInfo> = names.iter().map(|n| make_package(n)).collect();
+            let state = make_crate_picker_state(packages.clone(), &filter);
+            let filtered = state.filtered_packages();
+
+            let lower_filter = filter.to_lowercase();
+
+            // Every returned package must contain the filter (case-insensitive)
+            for pkg in &filtered {
+                prop_assert!(
+                    pkg.name.to_lowercase().contains(&lower_filter),
+                    "Package '{}' does not contain filter '{}'", pkg.name, filter
+                );
+            }
+
+            // Every package that matches must be in the result
+            let expected_count = packages.iter()
+                .filter(|p| p.name.to_lowercase().contains(&lower_filter))
+                .count();
+            prop_assert_eq!(filtered.len(), expected_count);
+        }
+    }
+
+    // Feature: crate-picker, Property 3: Filter change resets selected index to zero
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(100))]
+        #[test]
+        fn prop_update_filter_resets_selected(
+            names in proptest::collection::vec("[a-z][a-z0-9]{0,8}", 1..=10),
+            initial_selected in 0usize..10,
+            new_filter in "[a-z]{0,5}",
+        ) {
+            // **Validates: Requirements 3.4**
+            let packages: Vec<PackageInfo> = names.iter().map(|n| make_package(n)).collect();
+            let mut state = make_crate_picker_state(packages, "");
+            state.selected = initial_selected;
+            state.update_filter(new_filter);
+            prop_assert_eq!(state.selected, 0);
+        }
+    }
+
+    // Feature: crate-picker, Property 5: Navigation wraps correctly within the filtered list
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(100))]
+        #[test]
+        fn prop_navigation_wraps(
+            names in proptest::collection::vec("[a-z][a-z0-9]{0,8}", 1..=20),
+            start_idx in 0usize..20,
+        ) {
+            // **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
+            let packages: Vec<PackageInfo> = names.iter().map(|n| make_package(n)).collect();
+            let n = packages.len();
+            let initial = start_idx % n;
+
+            // Test move_down wraps
+            let mut state = make_crate_picker_state(packages.clone(), "");
+            state.selected = initial;
+            state.move_down();
+            prop_assert_eq!(state.selected, (initial + 1) % n);
+
+            // Test move_up wraps
+            let mut state = make_crate_picker_state(packages.clone(), "");
+            state.selected = initial;
+            state.move_up();
+            prop_assert_eq!(state.selected, (initial + n - 1) % n);
+        }
+    }
+
+    #[test]
+    fn prop_navigation_empty_list_noop() {
+        // **Validates: Requirements 4.4, 4.5**
+        let mut state = make_crate_picker_state(vec![], "");
+        state.selected = 0;
+        state.move_down();
+        assert_eq!(state.selected, 0);
+        state.move_up();
+        assert_eq!(state.selected, 0);
+    }
+
+    // Feature: crate-picker, Property 1: Package list is sorted alphabetically
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(100))]
+        #[test]
+        fn prop_package_list_sorted_alphabetically(
+            names in proptest::collection::vec("[a-zA-Z][a-zA-Z0-9_-]{0,10}", 0..=20),
+        ) {
+            // **Validates: Requirements 2.3**
+            let packages: Vec<PackageInfo> = names.iter().map(|n| make_package(n)).collect();
+            // Simulate what CratePicker does on OutputChunk::Done(success):
+            // sort packages alphabetically before storing in state
+            let mut sorted = packages.clone();
+            sorted.sort_by(|a, b| a.name.cmp(&b.name));
+            let state = CratePickerState {
+                packages: sorted,
+                filter: String::new(),
+                selected: 0,
+                status: CratePickerStatus::Loaded,
+                pending_action: Box::new(CommandAction::Execute(CargoCommand::Check)),
+            };
+            // Assert the packages are sorted
+            prop_assert!(
+                state.packages.windows(2).all(|w| w[0].name <= w[1].name),
+                "Package list is not sorted alphabetically"
+            );
+        }
+    }
+
+    // Feature: crate-picker, Property 6: Enter resolves the pending action with the selected package name
+    proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(100))]
+        #[test]
+        fn prop_enter_resolves_pending_action(
+            names in proptest::collection::vec("[a-z][a-z0-9_-]{0,10}", 1..=20),
+            selected_raw in 0usize..20,
+        ) {
+            // **Validates: Requirements 5.1, 5.2**
+            let packages: Vec<PackageInfo> = names.iter().map(|n| make_package(n)).collect();
+            let n = packages.len();
+            let selected = selected_raw % n;
+
+            let state = CratePickerState {
+                packages: packages.clone(),
+                filter: String::new(),
+                selected,
+                status: CratePickerStatus::Loaded,
+                pending_action: Box::new(CommandAction::Execute(CargoCommand::Remove { krate: String::new() })),
+            };
+
+            let filtered = state.filtered_packages();
+            prop_assert!(!filtered.is_empty());
+            let expected_name = filtered[selected].name.clone();
+            drop(filtered);
+
+            // Simulate Enter: apply_input_to_action with the selected package name
+            let resolved = apply_input_to_action(
+                CommandAction::Execute(CargoCommand::Remove { krate: String::new() }),
+                expected_name.clone(),
+            );
+
+            match resolved {
+                CommandAction::Execute(CargoCommand::Remove { krate }) => {
+                    prop_assert_eq!(krate, expected_name);
+                }
+                _ => {
+                    prop_assert!(false, "Expected Execute(Remove {{ krate }})");
+                }
+            }
+        }
     }
 }

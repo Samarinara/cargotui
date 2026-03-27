@@ -35,9 +35,8 @@ fn spawn_event_task(tx: mpsc::Sender<Event>, mut output_rx: Option<mpsc::Receive
             // Branch A: poll crossterm in a blocking thread so we don't block
             // the async runtime.
             let tx_clone = tx.clone();
-            let crossterm_fut = tokio::task::spawn_blocking(|| {
-                crossterm::event::poll(Duration::from_millis(250))
-            });
+            let crossterm_fut =
+                tokio::task::spawn_blocking(|| crossterm::event::poll(Duration::from_millis(250)));
 
             tokio::select! {
                 // --- Terminal events ---

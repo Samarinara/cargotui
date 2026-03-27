@@ -100,7 +100,11 @@ mod tests {
     fn test_parse_metadata_invalid_json() {
         let result = parse_metadata("not json");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Failed to parse metadata JSON"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Failed to parse metadata JSON")
+        );
     }
 
     #[test]

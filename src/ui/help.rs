@@ -1,3 +1,4 @@
+use crate::app::AppMode;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -5,7 +6,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use crate::app::AppMode;
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
@@ -48,22 +48,20 @@ fn bindings_for_mode(mode: &AppMode) -> Vec<(&'static str, &'static str)> {
             ("k / ↑", "Scroll output up"),
             ("c", "Clear output"),
         ],
-        AppMode::Help => vec![
-            ("?", "Close help"),
-            ("Esc / q", "Close help"),
-        ],
-        AppMode::Confirm(_) => vec![
-            ("Enter", "Confirm action"),
-            ("Esc / q", "Cancel"),
-        ],
-        AppMode::Error(_) => vec![
-            ("Esc / q", "Dismiss error"),
-        ],
+        AppMode::Help => vec![("?", "Close help"), ("Esc / q", "Close help")],
+        AppMode::Confirm(_) => vec![("Enter", "Confirm action"), ("Esc / q", "Cancel")],
+        AppMode::Error(_) => vec![("Esc / q", "Dismiss error")],
         AppMode::DepBrowser(_) => vec![
             ("↑ / k", "Move up"),
             ("↓ / j", "Move down"),
             ("Enter", "Open docs in browser"),
             ("Esc / q", "Go back"),
+        ],
+        AppMode::CratePicker(_) => vec![
+            ("↑ / k", "Move up"),
+            ("↓ / j", "Move down"),
+            ("Enter", "Select crate"),
+            ("Esc", "Cancel"),
         ],
     }
 }
@@ -80,10 +78,7 @@ pub fn render_help(mode: &AppMode, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|(key, desc)| {
             Line::from(vec![
-                Span::styled(
-                    format!("  {:20}", key),
-                    Style::default().fg(Color::Yellow),
-                ),
+                Span::styled(format!("  {:20}", key), Style::default().fg(Color::Yellow)),
                 Span::raw(*desc),
             ])
         })

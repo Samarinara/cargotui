@@ -1,6 +1,6 @@
+pub mod metadata;
 pub mod runner;
 pub mod workspace;
-pub mod metadata;
 
 use std::ffi::OsString;
 
@@ -16,6 +16,7 @@ pub enum CommandAction {
     RequiresInput(InputSpec, Box<CommandAction>),
     Confirm(Box<CommandAction>),
     BrowseDocs,
+    PickCrate(Box<CommandAction>),
 }
 
 pub struct InputSpec {
@@ -26,21 +27,45 @@ pub struct InputSpec {
 
 #[derive(Debug, Clone)]
 pub enum CargoCommand {
-    Build { release: bool },
+    Build {
+        release: bool,
+    },
     Check,
     Clean,
-    Test { filter: Option<String>, doc: bool },
+    Test {
+        filter: Option<String>,
+        doc: bool,
+    },
     Bench,
-    Run { bin: Option<String>, args: Option<String> },
-    Add { krate: String, version: Option<String> },
-    Remove { krate: String },
-    Update { krate: Option<String> },
-    Publish { dry_run: bool },
+    Run {
+        bin: Option<String>,
+        args: Option<String>,
+    },
+    Add {
+        krate: String,
+        version: Option<String>,
+    },
+    Remove {
+        krate: String,
+    },
+    Update {
+        krate: Option<String>,
+    },
+    Publish {
+        dry_run: bool,
+    },
     Package,
-    Login { token: String },
-    Yank { krate: String, version: String },
+    Login {
+        token: String,
+    },
+    Yank {
+        krate: String,
+        version: String,
+    },
     Metadata,
-    Doc { open: bool },
+    Doc {
+        open: bool,
+    },
     Fmt,
     Clippy,
     Fix,
@@ -149,291 +174,280 @@ impl CargoCommand {
     }
 }
 
-pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> =
-    std::sync::LazyLock::new(|| {
-        vec![
-            CommandNode {
-                name: "Build",
-                description: "Compile and build commands",
-                action: CommandAction::Submenu(vec![
-                    CommandNode {
-                        name: "build",
-                        description: "Compile the current package",
-                        action: CommandAction::Execute(CargoCommand::Build { release: false }),
-                    },
-                    CommandNode {
-                        name: "build --release",
-                        description: "Compile with optimizations",
-                        action: CommandAction::Execute(CargoCommand::Build { release: true }),
-                    },
-                    CommandNode {
-                        name: "check",
-                        description: "Check the package for errors without producing artifacts",
-                        action: CommandAction::Execute(CargoCommand::Check),
-                    },
-                    CommandNode {
-                        name: "clean",
-                        description: "Remove the target directory",
-                        action: CommandAction::Confirm(Box::new(CommandAction::Execute(
-                            CargoCommand::Clean,
-                        ))),
-                    },
-                ]),
-            },
-            CommandNode {
-                name: "Test",
-                description: "Test and benchmark commands",
-                action: CommandAction::Submenu(vec![
-                    CommandNode {
-                        name: "test",
-                        description: "Run the tests",
-                        action: CommandAction::Execute(CargoCommand::Test {
-                            filter: None,
+pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::LazyLock::new(|| {
+    vec![
+        CommandNode {
+            name: "Build",
+            description: "Compile and build commands",
+            action: CommandAction::Submenu(vec![
+                CommandNode {
+                    name: "build",
+                    description: "Compile the current package",
+                    action: CommandAction::Execute(CargoCommand::Build { release: false }),
+                },
+                CommandNode {
+                    name: "build --release",
+                    description: "Compile with optimizations",
+                    action: CommandAction::Execute(CargoCommand::Build { release: true }),
+                },
+                CommandNode {
+                    name: "check",
+                    description: "Check the package for errors without producing artifacts",
+                    action: CommandAction::Execute(CargoCommand::Check),
+                },
+                CommandNode {
+                    name: "clean",
+                    description: "Remove the target directory",
+                    action: CommandAction::Confirm(Box::new(CommandAction::Execute(
+                        CargoCommand::Clean,
+                    ))),
+                },
+            ]),
+        },
+        CommandNode {
+            name: "Test",
+            description: "Test and benchmark commands",
+            action: CommandAction::Submenu(vec![
+                CommandNode {
+                    name: "test",
+                    description: "Run the tests",
+                    action: CommandAction::Execute(CargoCommand::Test {
+                        filter: None,
+                        doc: false,
+                    }),
+                },
+                CommandNode {
+                    name: "test <filter>",
+                    description: "Run tests matching a filter",
+                    action: CommandAction::RequiresInput(
+                        InputSpec {
+                            prompt: "Test filter",
+                            required: true,
+                            placeholder: "test_name",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Test {
+                            filter: Some(String::new()),
                             doc: false,
-                        }),
-                    },
-                    CommandNode {
-                        name: "test <filter>",
-                        description: "Run tests matching a filter",
-                        action: CommandAction::RequiresInput(
-                            InputSpec {
-                                prompt: "Test filter",
-                                required: true,
-                                placeholder: "test_name",
-                            },
-                            Box::new(CommandAction::Execute(CargoCommand::Test {
-                                filter: Some(String::new()),
-                                doc: false,
-                            })),
-                        ),
-                    },
-                    CommandNode {
-                        name: "test --doc",
-                        description: "Run documentation tests",
-                        action: CommandAction::Execute(CargoCommand::Test {
-                            filter: None,
-                            doc: true,
-                        }),
-                    },
-                    CommandNode {
-                        name: "bench",
-                        description: "Run the benchmarks",
-                        action: CommandAction::Execute(CargoCommand::Bench),
-                    },
-                    CommandNode {
-                        name: "run",
-                        description: "Run the binary",
-                        action: CommandAction::Execute(CargoCommand::Run {
-                            bin: None,
+                        })),
+                    ),
+                },
+                CommandNode {
+                    name: "test --doc",
+                    description: "Run documentation tests",
+                    action: CommandAction::Execute(CargoCommand::Test {
+                        filter: None,
+                        doc: true,
+                    }),
+                },
+                CommandNode {
+                    name: "bench",
+                    description: "Run the benchmarks",
+                    action: CommandAction::Execute(CargoCommand::Bench),
+                },
+                CommandNode {
+                    name: "run",
+                    description: "Run the binary",
+                    action: CommandAction::Execute(CargoCommand::Run {
+                        bin: None,
+                        args: None,
+                    }),
+                },
+                CommandNode {
+                    name: "run --bin <name>",
+                    description: "Run a specific binary",
+                    action: CommandAction::RequiresInput(
+                        InputSpec {
+                            prompt: "Binary name",
+                            required: true,
+                            placeholder: "my_bin",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Run {
+                            bin: Some(String::new()),
                             args: None,
-                        }),
-                    },
-                    CommandNode {
-                        name: "run --bin <name>",
-                        description: "Run a specific binary",
-                        action: CommandAction::RequiresInput(
+                        })),
+                    ),
+                },
+            ]),
+        },
+        CommandNode {
+            name: "Dependencies",
+            description: "Manage package dependencies",
+            action: CommandAction::Submenu(vec![
+                CommandNode {
+                    name: "add <crate>",
+                    description: "Add a dependency",
+                    action: CommandAction::RequiresInput(
+                        InputSpec {
+                            prompt: "Crate name",
+                            required: true,
+                            placeholder: "serde",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Add {
+                            krate: String::new(),
+                            version: None,
+                        })),
+                    ),
+                },
+                CommandNode {
+                    name: "add <crate@version>",
+                    description: "Add a dependency at a specific version",
+                    action: CommandAction::RequiresInput(
+                        InputSpec {
+                            prompt: "Crate name",
+                            required: true,
+                            placeholder: "serde",
+                        },
+                        Box::new(CommandAction::RequiresInput(
                             InputSpec {
-                                prompt: "Binary name",
+                                prompt: "Version",
                                 required: true,
-                                placeholder: "my_bin",
-                            },
-                            Box::new(CommandAction::Execute(CargoCommand::Run {
-                                bin: Some(String::new()),
-                                args: None,
-                            })),
-                        ),
-                    },
-                ]),
-            },
-            CommandNode {
-                name: "Dependencies",
-                description: "Manage package dependencies",
-                action: CommandAction::Submenu(vec![
-                    CommandNode {
-                        name: "add <crate>",
-                        description: "Add a dependency",
-                        action: CommandAction::RequiresInput(
-                            InputSpec {
-                                prompt: "Crate name",
-                                required: true,
-                                placeholder: "serde",
+                                placeholder: "1.0",
                             },
                             Box::new(CommandAction::Execute(CargoCommand::Add {
                                 krate: String::new(),
-                                version: None,
+                                version: Some(String::new()),
                             })),
-                        ),
-                    },
-                    CommandNode {
-                        name: "add <crate@version>",
-                        description: "Add a dependency at a specific version",
-                        action: CommandAction::RequiresInput(
+                        )),
+                    ),
+                },
+                CommandNode {
+                    name: "remove <crate>",
+                    description: "Remove a dependency",
+                    action: CommandAction::PickCrate(Box::new(CommandAction::Execute(
+                        CargoCommand::Remove {
+                            krate: String::new(),
+                        },
+                    ))),
+                },
+                CommandNode {
+                    name: "update",
+                    description: "Update all dependencies",
+                    action: CommandAction::Execute(CargoCommand::Update { krate: None }),
+                },
+                CommandNode {
+                    name: "update <crate>",
+                    description: "Update a specific dependency",
+                    action: CommandAction::PickCrate(Box::new(CommandAction::Execute(
+                        CargoCommand::Update {
+                            krate: Some(String::new()),
+                        },
+                    ))),
+                },
+                CommandNode {
+                    name: "Browse Docs",
+                    description: "Browse dependencies and open documentation in browser",
+                    action: CommandAction::BrowseDocs,
+                },
+            ]),
+        },
+        CommandNode {
+            name: "Publish",
+            description: "Package and publish commands",
+            action: CommandAction::Submenu(vec![
+                CommandNode {
+                    name: "package",
+                    description: "Assemble the local package into a distributable tarball",
+                    action: CommandAction::Execute(CargoCommand::Package),
+                },
+                CommandNode {
+                    name: "publish",
+                    description: "Upload the package to the registry",
+                    action: CommandAction::Confirm(Box::new(CommandAction::Execute(
+                        CargoCommand::Publish { dry_run: false },
+                    ))),
+                },
+                CommandNode {
+                    name: "publish --dry-run",
+                    description: "Perform all checks without uploading",
+                    action: CommandAction::Execute(CargoCommand::Publish { dry_run: true }),
+                },
+                CommandNode {
+                    name: "login",
+                    description: "Log in to a registry",
+                    action: CommandAction::RequiresInput(
+                        InputSpec {
+                            prompt: "API token",
+                            required: true,
+                            placeholder: "token",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Login {
+                            token: String::new(),
+                        })),
+                    ),
+                },
+                CommandNode {
+                    name: "yank",
+                    description: "Remove a pushed crate from the index",
+                    action: CommandAction::RequiresInput(
+                        InputSpec {
+                            prompt: "Crate name",
+                            required: true,
+                            placeholder: "my_crate",
+                        },
+                        Box::new(CommandAction::RequiresInput(
                             InputSpec {
-                                prompt: "Crate name",
+                                prompt: "Version",
                                 required: true,
-                                placeholder: "serde",
+                                placeholder: "1.0.0",
                             },
-                            Box::new(CommandAction::RequiresInput(
-                                InputSpec {
-                                    prompt: "Version",
-                                    required: true,
-                                    placeholder: "1.0",
-                                },
-                                Box::new(CommandAction::Execute(CargoCommand::Add {
-                                    krate: String::new(),
-                                    version: Some(String::new()),
-                                })),
-                            )),
-                        ),
-                    },
-                    CommandNode {
-                        name: "remove <crate>",
-                        description: "Remove a dependency",
-                        action: CommandAction::RequiresInput(
-                            InputSpec {
-                                prompt: "Crate name",
-                                required: true,
-                                placeholder: "serde",
-                            },
-                            Box::new(CommandAction::Execute(CargoCommand::Remove {
+                            Box::new(CommandAction::Execute(CargoCommand::Yank {
                                 krate: String::new(),
+                                version: String::new(),
                             })),
-                        ),
-                    },
-                    CommandNode {
-                        name: "update",
-                        description: "Update all dependencies",
-                        action: CommandAction::Execute(CargoCommand::Update { krate: None }),
-                    },
-                    CommandNode {
-                        name: "update <crate>",
-                        description: "Update a specific dependency",
-                        action: CommandAction::RequiresInput(
-                            InputSpec {
-                                prompt: "Crate name",
-                                required: true,
-                                placeholder: "serde",
-                            },
-                            Box::new(CommandAction::Execute(CargoCommand::Update {
-                                krate: Some(String::new()),
-                            })),
-                        ),
-                    },
-                    CommandNode {
-                        name: "Browse Docs",
-                        description: "Browse dependencies and open documentation in browser",
-                        action: CommandAction::BrowseDocs,
-                    },
-                ]),
-            },
-            CommandNode {
-                name: "Publish",
-                description: "Package and publish commands",
-                action: CommandAction::Submenu(vec![
-                    CommandNode {
-                        name: "package",
-                        description: "Assemble the local package into a distributable tarball",
-                        action: CommandAction::Execute(CargoCommand::Package),
-                    },
-                    CommandNode {
-                        name: "publish",
-                        description: "Upload the package to the registry",
-                        action: CommandAction::Confirm(Box::new(CommandAction::Execute(
-                            CargoCommand::Publish { dry_run: false },
-                        ))),
-                    },
-                    CommandNode {
-                        name: "publish --dry-run",
-                        description: "Perform all checks without uploading",
-                        action: CommandAction::Execute(CargoCommand::Publish { dry_run: true }),
-                    },
-                    CommandNode {
-                        name: "login",
-                        description: "Log in to a registry",
-                        action: CommandAction::RequiresInput(
-                            InputSpec {
-                                prompt: "API token",
-                                required: true,
-                                placeholder: "token",
-                            },
-                            Box::new(CommandAction::Execute(CargoCommand::Login {
-                                token: String::new(),
-                            })),
-                        ),
-                    },
-                    CommandNode {
-                        name: "yank",
-                        description: "Remove a pushed crate from the index",
-                        action: CommandAction::RequiresInput(
-                            InputSpec {
-                                prompt: "Crate name",
-                                required: true,
-                                placeholder: "my_crate",
-                            },
-                            Box::new(CommandAction::RequiresInput(
-                                InputSpec {
-                                    prompt: "Version",
-                                    required: true,
-                                    placeholder: "1.0.0",
-                                },
-                                Box::new(CommandAction::Execute(CargoCommand::Yank {
-                                    krate: String::new(),
-                                    version: String::new(),
-                                })),
-                            )),
-                        ),
-                    },
-                ]),
-            },
-            CommandNode {
-                name: "Toolchain",
-                description: "Documentation and metadata",
-                action: CommandAction::Submenu(vec![
-                    CommandNode {
-                        name: "doc",
-                        description: "Build the documentation",
-                        action: CommandAction::Execute(CargoCommand::Doc { open: false }),
-                    },
-                    CommandNode {
-                        name: "doc --open",
-                        description: "Build and open the documentation in a browser",
-                        action: CommandAction::Execute(CargoCommand::Doc { open: true }),
-                    },
-                    CommandNode {
-                        name: "metadata",
-                        description: "Output the resolved dependencies of the package in JSON",
-                        action: CommandAction::Execute(CargoCommand::Metadata),
-                    },
-                ]),
-            },
-            CommandNode {
-                name: "Utilities",
-                description: "Code quality and utility commands",
-                action: CommandAction::Submenu(vec![
-                    CommandNode {
-                        name: "fmt",
-                        description: "Format all Rust files",
-                        action: CommandAction::Execute(CargoCommand::Fmt),
-                    },
-                    CommandNode {
-                        name: "clippy",
-                        description: "Run the Clippy linter",
-                        action: CommandAction::Execute(CargoCommand::Clippy),
-                    },
-                    CommandNode {
-                        name: "fix",
-                        description: "Automatically fix lint warnings",
-                        action: CommandAction::Execute(CargoCommand::Fix),
-                    },
-                    CommandNode {
-                        name: "tree",
-                        description: "Display a tree visualization of dependencies",
-                        action: CommandAction::Execute(CargoCommand::Tree),
-                    },
-                ]),
-            },
-        ]
-    });
+                        )),
+                    ),
+                },
+            ]),
+        },
+        CommandNode {
+            name: "Toolchain",
+            description: "Documentation and metadata",
+            action: CommandAction::Submenu(vec![
+                CommandNode {
+                    name: "doc",
+                    description: "Build the documentation",
+                    action: CommandAction::Execute(CargoCommand::Doc { open: false }),
+                },
+                CommandNode {
+                    name: "doc --open",
+                    description: "Build and open the documentation in a browser",
+                    action: CommandAction::Execute(CargoCommand::Doc { open: true }),
+                },
+                CommandNode {
+                    name: "metadata",
+                    description: "Output the resolved dependencies of the package in JSON",
+                    action: CommandAction::Execute(CargoCommand::Metadata),
+                },
+            ]),
+        },
+        CommandNode {
+            name: "Utilities",
+            description: "Code quality and utility commands",
+            action: CommandAction::Submenu(vec![
+                CommandNode {
+                    name: "fmt",
+                    description: "Format all Rust files",
+                    action: CommandAction::Execute(CargoCommand::Fmt),
+                },
+                CommandNode {
+                    name: "clippy",
+                    description: "Run the Clippy linter",
+                    action: CommandAction::Execute(CargoCommand::Clippy),
+                },
+                CommandNode {
+                    name: "fix",
+                    description: "Automatically fix lint warnings",
+                    action: CommandAction::Execute(CargoCommand::Fix),
+                },
+                CommandNode {
+                    name: "tree",
+                    description: "Display a tree visualization of dependencies",
+                    action: CommandAction::Execute(CargoCommand::Tree),
+                },
+            ]),
+        },
+    ]
+});
 
 #[cfg(test)]
 mod tests {
@@ -461,18 +475,28 @@ mod tests {
 
     #[test]
     fn test_check() {
-        assert_eq!(CargoCommand::Check.to_argv(), vec![os("cargo"), os("check")]);
+        assert_eq!(
+            CargoCommand::Check.to_argv(),
+            vec![os("cargo"), os("check")]
+        );
     }
 
     #[test]
     fn test_clean() {
-        assert_eq!(CargoCommand::Clean.to_argv(), vec![os("cargo"), os("clean")]);
+        assert_eq!(
+            CargoCommand::Clean.to_argv(),
+            vec![os("cargo"), os("clean")]
+        );
     }
 
     #[test]
     fn test_test_plain() {
         assert_eq!(
-            CargoCommand::Test { filter: None, doc: false }.to_argv(),
+            CargoCommand::Test {
+                filter: None,
+                doc: false
+            }
+            .to_argv(),
             vec![os("cargo"), os("test")]
         );
     }
@@ -480,7 +504,11 @@ mod tests {
     #[test]
     fn test_test_filter() {
         assert_eq!(
-            CargoCommand::Test { filter: Some("my_test".into()), doc: false }.to_argv(),
+            CargoCommand::Test {
+                filter: Some("my_test".into()),
+                doc: false
+            }
+            .to_argv(),
             vec![os("cargo"), os("test"), os("my_test")]
         );
     }
@@ -488,20 +516,31 @@ mod tests {
     #[test]
     fn test_test_doc() {
         assert_eq!(
-            CargoCommand::Test { filter: None, doc: true }.to_argv(),
+            CargoCommand::Test {
+                filter: None,
+                doc: true
+            }
+            .to_argv(),
             vec![os("cargo"), os("test"), os("--doc")]
         );
     }
 
     #[test]
     fn test_bench() {
-        assert_eq!(CargoCommand::Bench.to_argv(), vec![os("cargo"), os("bench")]);
+        assert_eq!(
+            CargoCommand::Bench.to_argv(),
+            vec![os("cargo"), os("bench")]
+        );
     }
 
     #[test]
     fn test_run_plain() {
         assert_eq!(
-            CargoCommand::Run { bin: None, args: None }.to_argv(),
+            CargoCommand::Run {
+                bin: None,
+                args: None
+            }
+            .to_argv(),
             vec![os("cargo"), os("run")]
         );
     }
@@ -509,7 +548,11 @@ mod tests {
     #[test]
     fn test_run_bin() {
         assert_eq!(
-            CargoCommand::Run { bin: Some("my_bin".into()), args: None }.to_argv(),
+            CargoCommand::Run {
+                bin: Some("my_bin".into()),
+                args: None
+            }
+            .to_argv(),
             vec![os("cargo"), os("run"), os("--bin"), os("my_bin")]
         );
     }
@@ -517,7 +560,11 @@ mod tests {
     #[test]
     fn test_run_args() {
         assert_eq!(
-            CargoCommand::Run { bin: None, args: Some("--foo".into()) }.to_argv(),
+            CargoCommand::Run {
+                bin: None,
+                args: Some("--foo".into())
+            }
+            .to_argv(),
             vec![os("cargo"), os("run"), os("--"), os("--foo")]
         );
     }
@@ -525,15 +572,30 @@ mod tests {
     #[test]
     fn test_run_bin_and_args() {
         assert_eq!(
-            CargoCommand::Run { bin: Some("b".into()), args: Some("a".into()) }.to_argv(),
-            vec![os("cargo"), os("run"), os("--bin"), os("b"), os("--"), os("a")]
+            CargoCommand::Run {
+                bin: Some("b".into()),
+                args: Some("a".into())
+            }
+            .to_argv(),
+            vec![
+                os("cargo"),
+                os("run"),
+                os("--bin"),
+                os("b"),
+                os("--"),
+                os("a")
+            ]
         );
     }
 
     #[test]
     fn test_add_no_version() {
         assert_eq!(
-            CargoCommand::Add { krate: "serde".into(), version: None }.to_argv(),
+            CargoCommand::Add {
+                krate: "serde".into(),
+                version: None
+            }
+            .to_argv(),
             vec![os("cargo"), os("add"), os("serde")]
         );
     }
@@ -541,7 +603,11 @@ mod tests {
     #[test]
     fn test_add_with_version() {
         assert_eq!(
-            CargoCommand::Add { krate: "serde".into(), version: Some("1.0".into()) }.to_argv(),
+            CargoCommand::Add {
+                krate: "serde".into(),
+                version: Some("1.0".into())
+            }
+            .to_argv(),
             vec![os("cargo"), os("add"), os("serde@1.0")]
         );
     }
@@ -549,7 +615,10 @@ mod tests {
     #[test]
     fn test_remove() {
         assert_eq!(
-            CargoCommand::Remove { krate: "serde".into() }.to_argv(),
+            CargoCommand::Remove {
+                krate: "serde".into()
+            }
+            .to_argv(),
             vec![os("cargo"), os("remove"), os("serde")]
         );
     }
@@ -565,7 +634,10 @@ mod tests {
     #[test]
     fn test_update_specific() {
         assert_eq!(
-            CargoCommand::Update { krate: Some("serde".into()) }.to_argv(),
+            CargoCommand::Update {
+                krate: Some("serde".into())
+            }
+            .to_argv(),
             vec![os("cargo"), os("update"), os("serde")]
         );
     }
@@ -588,13 +660,19 @@ mod tests {
 
     #[test]
     fn test_package() {
-        assert_eq!(CargoCommand::Package.to_argv(), vec![os("cargo"), os("package")]);
+        assert_eq!(
+            CargoCommand::Package.to_argv(),
+            vec![os("cargo"), os("package")]
+        );
     }
 
     #[test]
     fn test_login() {
         assert_eq!(
-            CargoCommand::Login { token: "mytoken".into() }.to_argv(),
+            CargoCommand::Login {
+                token: "mytoken".into()
+            }
+            .to_argv(),
             vec![os("cargo"), os("login"), os("mytoken")]
         );
     }
@@ -602,8 +680,18 @@ mod tests {
     #[test]
     fn test_yank() {
         assert_eq!(
-            CargoCommand::Yank { krate: "my_crate".into(), version: "1.0.0".into() }.to_argv(),
-            vec![os("cargo"), os("yank"), os("--version"), os("1.0.0"), os("my_crate")]
+            CargoCommand::Yank {
+                krate: "my_crate".into(),
+                version: "1.0.0".into()
+            }
+            .to_argv(),
+            vec![
+                os("cargo"),
+                os("yank"),
+                os("--version"),
+                os("1.0.0"),
+                os("my_crate")
+            ]
         );
     }
 
@@ -638,7 +726,10 @@ mod tests {
 
     #[test]
     fn test_clippy() {
-        assert_eq!(CargoCommand::Clippy.to_argv(), vec![os("cargo"), os("clippy")]);
+        assert_eq!(
+            CargoCommand::Clippy.to_argv(),
+            vec![os("cargo"), os("clippy")]
+        );
     }
 
     #[test]
@@ -661,7 +752,10 @@ mod tests {
             proptest::bool::ANY.prop_map(|release| CargoCommand::Build { release }),
             Just(CargoCommand::Check),
             Just(CargoCommand::Clean),
-            (proptest::option::of("[a-z][a-z0-9]{0,10}"), proptest::bool::ANY)
+            (
+                proptest::option::of("[a-z][a-z0-9]{0,10}"),
+                proptest::bool::ANY
+            )
                 .prop_map(|(filter, doc)| CargoCommand::Test { filter, doc }),
             Just(CargoCommand::Bench),
             (
@@ -731,16 +825,28 @@ mod tests {
             CargoCommand::Build { release: false },
             CargoCommand::Check,
             CargoCommand::Clean,
-            CargoCommand::Test { filter: None, doc: false },
+            CargoCommand::Test {
+                filter: None,
+                doc: false,
+            },
             CargoCommand::Bench,
-            CargoCommand::Run { bin: None, args: None },
-            CargoCommand::Add { krate: "x".into(), version: None },
+            CargoCommand::Run {
+                bin: None,
+                args: None,
+            },
+            CargoCommand::Add {
+                krate: "x".into(),
+                version: None,
+            },
             CargoCommand::Remove { krate: "x".into() },
             CargoCommand::Update { krate: None },
             CargoCommand::Publish { dry_run: false },
             CargoCommand::Package,
             CargoCommand::Login { token: "t".into() },
-            CargoCommand::Yank { krate: "x".into(), version: "1.0".into() },
+            CargoCommand::Yank {
+                krate: "x".into(),
+                version: "1.0".into(),
+            },
             CargoCommand::Metadata,
             CargoCommand::Doc { open: false },
             CargoCommand::Fmt,

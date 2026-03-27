@@ -1,10 +1,10 @@
+use crate::cargo::metadata::PackageInfo;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
-use crate::cargo::metadata::PackageInfo;
 
 /// Returns the docs.rs URL for a given package name and version.
 pub fn build_doc_url(name: &str, version: &str) -> String {
@@ -40,11 +40,7 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn render_dep_browser(
-    state: &crate::app::DepBrowserState,
-    frame: &mut Frame,
-    area: Rect,
-) {
+pub fn render_dep_browser(state: &crate::app::DepBrowserState, frame: &mut Frame, area: Rect) {
     use crate::app::DepBrowserStatus;
 
     // Split area vertically when there's a message: 90% content, 10% message
@@ -82,13 +78,11 @@ pub fn render_dep_browser(
                     .map(|pkg| ListItem::new(format_package_row(pkg)))
                     .collect();
 
-                let list = List::new(items)
-                    .block(block)
-                    .highlight_style(
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    );
+                let list = List::new(items).block(block).highlight_style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                );
 
                 let mut list_state = ListState::default();
                 list_state.select(Some(state.selected));

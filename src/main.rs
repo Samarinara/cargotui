@@ -66,6 +66,8 @@ async fn run(
                 if matches!(app.mode, crate::app::AppMode::DepBrowser(_)) {
                     // Launching metadata for DepBrowser — don't change mode or touch output panel
                     let _ = app.launch_metadata_for_dep_browser(&root, output_tx).await;
+                } else if matches!(app.mode, crate::app::AppMode::CratePicker(_)) {
+                    let _ = app.launch_metadata_for_crate_picker(&root, output_tx).await;
                 } else {
                     app.output.start_command(format!("{:?}", cmd));
                     let _ = app.launch_command(cmd, &root, output_tx).await;
@@ -80,7 +82,8 @@ async fn run(
 fn main() {
     // Detect workspace — must be done before entering alternate screen so
     // error messages are visible in the normal terminal.
-    let workspace = match crate::cargo::workspace::find_workspace(&std::env::current_dir().unwrap()) {
+    let workspace = match crate::cargo::workspace::find_workspace(&std::env::current_dir().unwrap())
+    {
         Ok(ws) => ws,
         Err(e) => {
             eprintln!("Error: {e}");
