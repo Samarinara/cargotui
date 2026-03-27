@@ -15,6 +15,20 @@ cargotui provides an interactive TUI for running common Cargo commands without m
 - **Toolchain**: doc, doc --open, metadata
 - **Utilities**: fmt, clippy, fix, tree
 
+## Installation
+
+### From source
+
+```
+cargo install cargotui
+```
+
+### From cargo
+
+```
+cargo install --git https://github.com/yourusername/cargotui
+```
+
 ## Usage
 
 Run from any directory containing a Cargo.toml (or a subdirectory of one):
