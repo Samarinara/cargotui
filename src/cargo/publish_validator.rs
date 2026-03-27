@@ -1,6 +1,6 @@
-use std::path::Path;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
+use std::path::Path;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,15 +25,24 @@ pub struct ValidationReport {
 
 impl ValidationReport {
     pub fn pass_count(&self) -> usize {
-        self.results.iter().filter(|r| r.status == ValidationStatus::Pass).count()
+        self.results
+            .iter()
+            .filter(|r| r.status == ValidationStatus::Pass)
+            .count()
     }
 
     pub fn warn_count(&self) -> usize {
-        self.results.iter().filter(|r| r.status == ValidationStatus::Warn).count()
+        self.results
+            .iter()
+            .filter(|r| r.status == ValidationStatus::Warn)
+            .count()
     }
 
     pub fn fail_count(&self) -> usize {
-        self.results.iter().filter(|r| r.status == ValidationStatus::Fail).count()
+        self.results
+            .iter()
+            .filter(|r| r.status == ValidationStatus::Fail)
+            .count()
     }
 
     pub fn summary(&self) -> String {
@@ -44,7 +53,10 @@ impl ValidationReport {
         } else if fails == 0 {
             format!("Validation passed with {} warning(s)", warns)
         } else {
-            format!("Validation failed: {} error(s), {} warning(s)", fails, warns)
+            format!(
+                "Validation failed: {} error(s), {} warning(s)",
+                fails, warns
+            )
         }
     }
 }
@@ -69,15 +81,27 @@ static SPDX_IDENTIFIERS: &[&str] = &[
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn pass(check: &'static str, message: impl Into<String>) -> ValidationResult {
-    ValidationResult { check, status: ValidationStatus::Pass, message: message.into() }
+    ValidationResult {
+        check,
+        status: ValidationStatus::Pass,
+        message: message.into(),
+    }
 }
 
 fn warn(check: &'static str, message: impl Into<String>) -> ValidationResult {
-    ValidationResult { check, status: ValidationStatus::Warn, message: message.into() }
+    ValidationResult {
+        check,
+        status: ValidationStatus::Warn,
+        message: message.into(),
+    }
 }
 
 fn fail(check: &'static str, message: impl Into<String>) -> ValidationResult {
-    ValidationResult { check, status: ValidationStatus::Fail, message: message.into() }
+    ValidationResult {
+        check,
+        status: ValidationStatus::Fail,
+        message: message.into(),
+    }
 }
 
 fn get_str<'a>(table: &'a toml::Value, key: &str) -> Option<&'a str> {
@@ -98,12 +122,14 @@ pub fn is_valid_semver(s: &str) -> bool {
     }
     // Strip optional pre-release / build metadata after the third component
     // e.g. "1.0.0-alpha", "1.0.0+build", "1.0.0-alpha.1+build"
-    let core = s.splitn(2, |c| c == '-' || c == '+').next().unwrap_or(s);
+    let core = s.split(['-', '+']).next().unwrap_or(s);
     let parts: Vec<&str> = core.split('.').collect();
     if parts.len() != 3 {
         return false;
     }
-    parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 // ── Name validation ───────────────────────────────────────────────────────────
@@ -117,16 +143,24 @@ fn check_name(name: &str) -> Vec<ValidationResult> {
         .filter(|c| !c.is_ascii_alphanumeric() && *c != '-' && *c != '_')
         .collect();
     if !invalid_chars.is_empty() {
-        let chars_str: String = invalid_chars.iter().collect::<std::collections::HashSet<_>>()
+        let chars_str: String = invalid_chars
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        results.push(fail("name", format!("crate name contains invalid characters: '{}'", chars_str)));
+        results.push(fail(
+            "name",
+            format!("crate name contains invalid characters: '{}'", chars_str),
+        ));
         return results; // further checks on name are moot if chars are invalid
     }
 
     // Check starts with alpha
     if !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
-        results.push(fail("name", "crate name must start with an alphabetic character"));
+        results.push(fail(
+            "name",
+            "crate name must start with an alphabetic character",
+        ));
         return results;
     }
 
@@ -149,10 +183,12 @@ fn check_license(manifest: &toml::Value, manifest_dir: &Path) -> ValidationResul
     match (license, license_file) {
         (None, None) => {
             // Check if either key exists but is not a string (e.g. empty table)
-            let has_license = manifest.get("package")
+            let has_license = manifest
+                .get("package")
                 .and_then(|p| p.get("license"))
                 .is_some();
-            let has_license_file = manifest.get("package")
+            let has_license_file = manifest
+                .get("package")
                 .and_then(|p| p.get("license-file"))
                 .is_some();
             if has_license || has_license_file {
@@ -177,7 +213,10 @@ fn check_license(manifest: &toml::Value, manifest_dir: &Path) -> ValidationResul
 
             let all_known = tokens.iter().all(|t| SPDX_IDENTIFIERS.contains(t));
             if all_known {
-                pass("license", format!("license '{}' is a recognized SPDX expression", lic))
+                pass(
+                    "license",
+                    format!("license '{}' is a recognized SPDX expression", lic),
+                )
             } else {
                 warn("license", "license may not be a recognized SPDX expression")
             }
@@ -213,7 +252,10 @@ fn check_optional_fields(manifest: &toml::Value, manifest_dir: &Path) -> Vec<Val
 
     // repository
     if get_str(manifest, "repository").is_none() {
-        results.push(warn("repository", "repository field is missing (recommended)"));
+        results.push(warn(
+            "repository",
+            "repository field is missing (recommended)",
+        ));
     } else {
         results.push(pass("repository", "repository field is present"));
     }
@@ -233,7 +275,10 @@ fn check_optional_fields(manifest: &toml::Value, manifest_dir: &Path) -> Vec<Val
             if kws.len() > 5 {
                 results.push(fail("keywords", "keywords must not exceed 5 entries"));
             } else {
-                results.push(pass("keywords", format!("{} keyword(s) present", kws.len())));
+                results.push(pass(
+                    "keywords",
+                    format!("{} keyword(s) present", kws.len()),
+                ));
             }
         }
     }
@@ -247,7 +292,10 @@ fn check_optional_fields(manifest: &toml::Value, manifest_dir: &Path) -> Vec<Val
             if cats.len() > 5 {
                 results.push(fail("categories", "categories must not exceed 5 entries"));
             } else {
-                results.push(pass("categories", format!("{} categor(y/ies) present", cats.len())));
+                results.push(pass(
+                    "categories",
+                    format!("{} categor(y/ies) present", cats.len()),
+                ));
             }
         }
     }
@@ -276,7 +324,10 @@ pub fn run_validation(manifest_dir: &Path) -> ValidationReport {
         Ok(v) => v,
         Err(e) => {
             return ValidationReport {
-                results: vec![fail("manifest", format!("Cargo.toml is not valid TOML: {}", e))],
+                results: vec![fail(
+                    "manifest",
+                    format!("Cargo.toml is not valid TOML: {}", e),
+                )],
             };
         }
     };
@@ -308,7 +359,9 @@ pub fn run_validation(manifest_dir: &Path) -> ValidationReport {
     // description
     match get_str(&manifest, "description") {
         None => results.push(fail("description", "missing required field: description")),
-        Some(d) if d.is_empty() => results.push(fail("description", "missing required field: description")),
+        Some(d) if d.is_empty() => {
+            results.push(fail("description", "missing required field: description"))
+        }
         Some(_) => results.push(pass("description", "description is present")),
     }
 
@@ -325,16 +378,20 @@ pub fn run_validation(manifest_dir: &Path) -> ValidationReport {
 
 /// Format a `ValidationReport` into colored ratatui `Line`s for the output panel.
 pub fn format_report(report: &ValidationReport) -> Vec<Line<'static>> {
-    let mut lines: Vec<Line<'static>> = report.results.iter().map(|r| {
-        let (symbol, color) = match r.status {
-            ValidationStatus::Pass => ("✓", Color::Green),
-            ValidationStatus::Warn => ("⚠", Color::Yellow),
-            ValidationStatus::Fail => ("✗", Color::Red),
-        };
-        let symbol_span = Span::styled(symbol, Style::default().fg(color));
-        let text_span = Span::raw(format!(" [{}] {}", r.check, r.message));
-        Line::from(vec![symbol_span, text_span])
-    }).collect();
+    let mut lines: Vec<Line<'static>> = report
+        .results
+        .iter()
+        .map(|r| {
+            let (symbol, color) = match r.status {
+                ValidationStatus::Pass => ("✓", Color::Green),
+                ValidationStatus::Warn => ("⚠", Color::Yellow),
+                ValidationStatus::Fail => ("✗", Color::Red),
+            };
+            let symbol_span = Span::styled(symbol, Style::default().fg(color));
+            let text_span = Span::raw(format!(" [{}] {}", r.check, r.message));
+            Line::from(vec![symbol_span, text_span])
+        })
+        .collect();
 
     // Summary line
     let summary = report.summary();
@@ -345,7 +402,10 @@ pub fn format_report(report: &ValidationReport) -> Vec<Line<'static>> {
     } else {
         Color::Green
     };
-    lines.push(Line::from(Span::styled(summary, Style::default().fg(summary_color))));
+    lines.push(Line::from(Span::styled(
+        summary,
+        Style::default().fg(summary_color),
+    )));
 
     lines
 }
@@ -367,11 +427,17 @@ mod tests {
     }
 
     fn has_fail(report: &ValidationReport, msg: &str) -> bool {
-        report.results.iter().any(|r| r.status == ValidationStatus::Fail && r.message.contains(msg))
+        report
+            .results
+            .iter()
+            .any(|r| r.status == ValidationStatus::Fail && r.message.contains(msg))
     }
 
     fn has_any_fail(report: &ValidationReport) -> bool {
-        report.results.iter().any(|r| r.status == ValidationStatus::Fail)
+        report
+            .results
+            .iter()
+            .any(|r| r.status == ValidationStatus::Fail)
     }
 
     // ── 4.1 All required fields present → no Fail results ────────────────────
@@ -386,7 +452,11 @@ description = "A test crate"
 license = "MIT"
 "#;
         let report = validate_toml(content);
-        assert!(!has_any_fail(&report), "Expected no Fail results, got: {:?}", report.results);
+        assert!(
+            !has_any_fail(&report),
+            "Expected no Fail results, got: {:?}",
+            report.results
+        );
     }
 
     // ── 4.2 Missing required fields → correct Fail messages ──────────────────
@@ -436,7 +506,10 @@ version = "1.0.0"
 description = "A test crate"
 "#;
         let report = validate_toml(content);
-        assert!(has_fail(&report, "missing required field: license or license-file"));
+        assert!(has_fail(
+            &report,
+            "missing required field: license or license-file"
+        ));
     }
 
     // ── 4.3 Invalid semver strings → Fail ────────────────────────────────────
@@ -497,7 +570,11 @@ description = "A test crate"
 license = "MIT"
 "#;
         let report = validate_toml(content);
-        let version_result = report.results.iter().find(|r| r.check == "version").unwrap();
+        let version_result = report
+            .results
+            .iter()
+            .find(|r| r.check == "version")
+            .unwrap();
         assert_eq!(version_result.status, ValidationStatus::Pass);
     }
 
@@ -512,7 +589,11 @@ description = "A test crate"
 license = "MIT"
 "#;
         let report = validate_toml(content);
-        let version_result = report.results.iter().find(|r| r.check == "version").unwrap();
+        let version_result = report
+            .results
+            .iter()
+            .find(|r| r.check == "version")
+            .unwrap();
         assert_eq!(version_result.status, ValidationStatus::Pass);
     }
 
@@ -578,7 +659,11 @@ license = "MIT"
         let report = validate_toml(&content);
         let name_result = report.results.iter().find(|r| r.check == "name").unwrap();
         assert_eq!(name_result.status, ValidationStatus::Fail);
-        assert!(name_result.message.contains("must not exceed 64 characters"));
+        assert!(
+            name_result
+                .message
+                .contains("must not exceed 64 characters")
+        );
     }
 
     #[test]
@@ -622,7 +707,11 @@ keywords = ["a", "b", "c", "d", "e"]
         let report = validate_toml(content);
         let kw_result = report.results.iter().find(|r| r.check == "keywords");
         if let Some(r) = kw_result {
-            assert_ne!(r.status, ValidationStatus::Fail, "5 keywords should not produce a Fail");
+            assert_ne!(
+                r.status,
+                ValidationStatus::Fail,
+                "5 keywords should not produce a Fail"
+            );
         }
         // If no keywords result, that's also fine (no fail)
     }
@@ -670,9 +759,17 @@ readme = "NONEXISTENT_README.md"
         let manifest_path = dir.path().join("Cargo.toml");
         fs::write(&manifest_path, "this is not valid toml ][[[").unwrap();
         let report = run_validation(dir.path());
-        assert_eq!(report.results.len(), 1, "Expected exactly one result for invalid TOML");
+        assert_eq!(
+            report.results.len(),
+            1,
+            "Expected exactly one result for invalid TOML"
+        );
         assert_eq!(report.results[0].status, ValidationStatus::Fail);
-        assert!(report.results[0].message.contains("Cargo.toml is not valid TOML"));
+        assert!(
+            report.results[0]
+                .message
+                .contains("Cargo.toml is not valid TOML")
+        );
     }
 
     // ── 4.9 format_report symbols ─────────────────────────────────────────────
@@ -700,9 +797,21 @@ readme = "NONEXISTENT_README.md"
         };
         let lines = format_report(&report);
         // First 3 lines correspond to the 3 results; last line is summary
-        let pass_line = lines[0].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        let warn_line = lines[1].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        let fail_line = lines[2].spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        let pass_line = lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>();
+        let warn_line = lines[1]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>();
+        let fail_line = lines[2]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>();
         assert!(pass_line.contains('✓'), "Pass line should contain ✓");
         assert!(warn_line.contains('⚠'), "Warn line should contain ⚠");
         assert!(fail_line.contains('✗'), "Fail line should contain ✗");
@@ -744,15 +853,16 @@ readme = "NONEXISTENT_README.md"
     #[test]
     fn test_summary_any_fail() {
         let report = ValidationReport {
-            results: vec![
-                ValidationResult {
-                    check: "test",
-                    status: ValidationStatus::Fail,
-                    message: "broken".to_string(),
-                },
-            ],
+            results: vec![ValidationResult {
+                check: "test",
+                status: ValidationStatus::Fail,
+                message: "broken".to_string(),
+            }],
         };
-        assert_eq!(report.summary(), "Validation failed: 1 error(s), 0 warning(s)");
+        assert_eq!(
+            report.summary(),
+            "Validation failed: 1 error(s), 0 warning(s)"
+        );
     }
 
     // ── 4.11 COMMAND_TREE validate node ───────────────────────────────────────
@@ -786,9 +896,9 @@ readme = "NONEXISTENT_README.md"
 #[cfg(test)]
 mod prop_tests {
     use super::*;
+    use proptest::prelude::*;
     use std::fs;
     use tempfile::tempdir;
-    use proptest::prelude::*;
 
     fn validate_toml_str(content: &str) -> ValidationReport {
         let dir = tempdir().unwrap();
@@ -798,15 +908,24 @@ mod prop_tests {
     }
 
     fn has_fail_for_check(report: &ValidationReport, check: &str) -> bool {
-        report.results.iter().any(|r| r.status == ValidationStatus::Fail && r.check == check)
+        report
+            .results
+            .iter()
+            .any(|r| r.status == ValidationStatus::Fail && r.check == check)
     }
 
     fn has_fail_containing(report: &ValidationReport, msg: &str) -> bool {
-        report.results.iter().any(|r| r.status == ValidationStatus::Fail && r.message.contains(msg))
+        report
+            .results
+            .iter()
+            .any(|r| r.status == ValidationStatus::Fail && r.message.contains(msg))
     }
 
     fn line_to_string(line: &ratatui::text::Line) -> String {
-        line.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
+        line.spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
     }
 
     // ── Property 1 ────────────────────────────────────────────────────────────

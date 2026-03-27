@@ -159,7 +159,6 @@ pub struct MenuLevel {
 
 /// Recursively clone a CommandNode from the static tree.
 fn clone_node(node: &crate::cargo::CommandNode) -> crate::cargo::CommandNode {
-    use crate::cargo::CommandAction;
     crate::cargo::CommandNode {
         name: node.name,
         description: node.description,
@@ -608,11 +607,8 @@ impl App {
                 if let Event::Key(key) = event {
                     match key.code {
                         KeyCode::Enter => {
-                            match *ctx.pending_action {
-                                CommandAction::Execute(cmd) => {
-                                    self.pending_command = Some(cmd);
-                                }
-                                _ => {}
+                            if let CommandAction::Execute(cmd) = *ctx.pending_action {
+                                self.pending_command = Some(cmd);
                             }
                             self.mode = AppMode::Menu;
                         }
@@ -958,10 +954,18 @@ fn apply_input_to_command(cmd: CargoCommand, value: &str) -> CargoCommand {
             query: value.to_string(),
         },
         CargoCommand::Rustc { args: Some(ref a) } if a.is_empty() => CargoCommand::Rustc {
-            args: if value.is_empty() { None } else { Some(value.to_string()) },
+            args: if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            },
         },
         CargoCommand::Rustdoc { args: Some(ref a) } if a.is_empty() => CargoCommand::Rustdoc {
-            args: if value.is_empty() { None } else { Some(value.to_string()) },
+            args: if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            },
         },
         other => other,
     }

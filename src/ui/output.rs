@@ -104,16 +104,19 @@ pub fn render_output(buffer: &OutputBuffer, frame: &mut Frame, area: Rect, focus
     };
 
     // Append exit status line if present
-    if let Some(e) = entry {
-        if let Some(status) = &e.exit_status {
-            let (msg, color) = if status.success() {
-                (format!("✓ Process exited successfully (0)"), Color::Green)
-            } else {
-                let code = status.code().unwrap_or(-1);
-                (format!("✗ Process exited with code {}", code), Color::Red)
-            };
-            lines.push(Line::from(Span::styled(msg, Style::default().fg(color))));
-        }
+    if let Some(e) = entry
+        && let Some(status) = &e.exit_status
+    {
+        let (msg, color) = if status.success() {
+            (
+                "✓ Process exited successfully (0)".to_string(),
+                Color::Green,
+            )
+        } else {
+            let code = status.code().unwrap_or(-1);
+            (format!("✗ Process exited with code {}", code), Color::Red)
+        };
+        lines.push(Line::from(Span::styled(msg, Style::default().fg(color))));
     }
 
     let total_lines = lines.len();

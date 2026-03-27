@@ -57,21 +57,21 @@ async fn run(
         }
 
         // Check if there's a pending command to launch
-        if let Some(cmd) = app.pending_command.take() {
-            if let Some(workspace) = &app.workspace {
-                let root = workspace.root.clone();
-                let (output_tx, output_rx) = tokio::sync::mpsc::channel(256);
-                // Recreate event handler with the new output receiver
-                event_handler = EventHandler::new(Some(output_rx));
-                if matches!(app.mode, crate::app::AppMode::DepBrowser(_)) {
-                    // Launching metadata for DepBrowser — don't change mode or touch output panel
-                    let _ = app.launch_metadata_for_dep_browser(&root, output_tx).await;
-                } else if matches!(app.mode, crate::app::AppMode::CratePicker(_)) {
-                    let _ = app.launch_metadata_for_crate_picker(&root, output_tx).await;
-                } else {
-                    app.output.start_command(format!("{:?}", cmd));
-                    let _ = app.launch_command(cmd, &root, output_tx).await;
-                }
+        if let Some(cmd) = app.pending_command.take()
+            && let Some(workspace) = &app.workspace
+        {
+            let root = workspace.root.clone();
+            let (output_tx, output_rx) = tokio::sync::mpsc::channel(256);
+            // Recreate event handler with the new output receiver
+            event_handler = EventHandler::new(Some(output_rx));
+            if matches!(app.mode, crate::app::AppMode::DepBrowser(_)) {
+                // Launching metadata for DepBrowser — don't change mode or touch output panel
+                let _ = app.launch_metadata_for_dep_browser(&root, output_tx).await;
+            } else if matches!(app.mode, crate::app::AppMode::CratePicker(_)) {
+                let _ = app.launch_metadata_for_crate_picker(&root, output_tx).await;
+            } else {
+                app.output.start_command(format!("{:?}", cmd));
+                let _ = app.launch_command(cmd, &root, output_tx).await;
             }
         }
     }

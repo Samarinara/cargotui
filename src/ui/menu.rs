@@ -32,7 +32,12 @@ pub fn render_menu(menu: &MenuState, frame: &mut Frame, area: Rect, focused: boo
         Style::default()
     };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Commands").border_style(border_style))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Commands")
+                .border_style(border_style),
+        )
         .highlight_style(
             Style::default()
                 .fg(Color::Yellow)

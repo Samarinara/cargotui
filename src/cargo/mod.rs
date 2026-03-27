@@ -103,7 +103,12 @@ impl CargoCommand {
     pub fn to_argv(&self) -> Vec<OsString> {
         let mut argv: Vec<OsString> = vec!["cargo".into()];
         match self {
-            CargoCommand::Build { release, target, features, no_default_features } => {
+            CargoCommand::Build {
+                release,
+                target,
+                features,
+                no_default_features,
+            } => {
                 argv.push("build".into());
                 if *release {
                     argv.push("--release".into());
@@ -126,7 +131,13 @@ impl CargoCommand {
             CargoCommand::Clean => {
                 argv.push("clean".into());
             }
-            CargoCommand::Test { filter, doc, no_run, ignored, extra_args } => {
+            CargoCommand::Test {
+                filter,
+                doc,
+                no_run,
+                ignored,
+                extra_args,
+            } => {
                 argv.push("test".into());
                 if *doc {
                     argv.push("--doc".into());
@@ -149,7 +160,11 @@ impl CargoCommand {
             CargoCommand::Bench => {
                 argv.push("bench".into());
             }
-            CargoCommand::Run { bin, args, features } => {
+            CargoCommand::Run {
+                bin,
+                args,
+                features,
+            } => {
                 argv.push("run".into());
                 if let Some(b) = bin {
                     argv.push("--bin".into());
@@ -282,33 +297,66 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                 CommandNode {
                     name: "build",
                     description: "Compile the current package",
-                    action: CommandAction::Execute(CargoCommand::Build { release: false, target: None, features: None, no_default_features: false }),
+                    action: CommandAction::Execute(CargoCommand::Build {
+                        release: false,
+                        target: None,
+                        features: None,
+                        no_default_features: false,
+                    }),
                 },
                 CommandNode {
                     name: "build --release",
                     description: "Compile with optimizations",
-                    action: CommandAction::Execute(CargoCommand::Build { release: true, target: None, features: None, no_default_features: false }),
+                    action: CommandAction::Execute(CargoCommand::Build {
+                        release: true,
+                        target: None,
+                        features: None,
+                        no_default_features: false,
+                    }),
                 },
                 CommandNode {
                     name: "build --features",
                     description: "Compile with specific features enabled",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Features (comma-separated)", required: true, placeholder: "serde,tokio" },
-                        Box::new(CommandAction::Execute(CargoCommand::Build { release: false, target: None, features: Some(String::new()), no_default_features: false })),
+                        InputSpec {
+                            prompt: "Features (comma-separated)",
+                            required: true,
+                            placeholder: "serde,tokio",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Build {
+                            release: false,
+                            target: None,
+                            features: Some(String::new()),
+                            no_default_features: false,
+                        })),
                     ),
                 },
                 CommandNode {
                     name: "build --target",
                     description: "Compile for a specific target triple",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Target triple", required: true, placeholder: "x86_64-unknown-linux-musl" },
-                        Box::new(CommandAction::Execute(CargoCommand::Build { release: false, target: Some(String::new()), features: None, no_default_features: false })),
+                        InputSpec {
+                            prompt: "Target triple",
+                            required: true,
+                            placeholder: "x86_64-unknown-linux-musl",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Build {
+                            release: false,
+                            target: Some(String::new()),
+                            features: None,
+                            no_default_features: false,
+                        })),
                     ),
                 },
                 CommandNode {
                     name: "build --no-default-features",
                     description: "Compile without default features",
-                    action: CommandAction::Execute(CargoCommand::Build { release: false, target: None, features: None, no_default_features: true }),
+                    action: CommandAction::Execute(CargoCommand::Build {
+                        release: false,
+                        target: None,
+                        features: None,
+                        no_default_features: true,
+                    }),
                 },
                 CommandNode {
                     name: "check",
@@ -332,16 +380,28 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                     name: "test",
                     description: "Run the tests",
                     action: CommandAction::Execute(CargoCommand::Test {
-                        filter: None, doc: false, no_run: false, ignored: false, extra_args: None,
+                        filter: None,
+                        doc: false,
+                        no_run: false,
+                        ignored: false,
+                        extra_args: None,
                     }),
                 },
                 CommandNode {
                     name: "test <filter>",
                     description: "Run tests matching a filter",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Test filter", required: true, placeholder: "test_name" },
+                        InputSpec {
+                            prompt: "Test filter",
+                            required: true,
+                            placeholder: "test_name",
+                        },
                         Box::new(CommandAction::Execute(CargoCommand::Test {
-                            filter: Some(String::new()), doc: false, no_run: false, ignored: false, extra_args: None,
+                            filter: Some(String::new()),
+                            doc: false,
+                            no_run: false,
+                            ignored: false,
+                            extra_args: None,
                         })),
                     ),
                 },
@@ -349,21 +409,33 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                     name: "test --doc",
                     description: "Run documentation tests",
                     action: CommandAction::Execute(CargoCommand::Test {
-                        filter: None, doc: true, no_run: false, ignored: false, extra_args: None,
+                        filter: None,
+                        doc: true,
+                        no_run: false,
+                        ignored: false,
+                        extra_args: None,
                     }),
                 },
                 CommandNode {
                     name: "test --no-run",
                     description: "Compile tests without running them",
                     action: CommandAction::Execute(CargoCommand::Test {
-                        filter: None, doc: false, no_run: true, ignored: false, extra_args: None,
+                        filter: None,
+                        doc: false,
+                        no_run: true,
+                        ignored: false,
+                        extra_args: None,
                     }),
                 },
                 CommandNode {
                     name: "test --ignored",
                     description: "Run only ignored tests",
                     action: CommandAction::Execute(CargoCommand::Test {
-                        filter: None, doc: false, no_run: false, ignored: true, extra_args: None,
+                        filter: None,
+                        doc: false,
+                        no_run: false,
+                        ignored: true,
+                        extra_args: None,
                     }),
                 },
                 CommandNode {
@@ -375,16 +447,24 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                     name: "run",
                     description: "Run the binary",
                     action: CommandAction::Execute(CargoCommand::Run {
-                        bin: None, args: None, features: None,
+                        bin: None,
+                        args: None,
+                        features: None,
                     }),
                 },
                 CommandNode {
                     name: "run --bin <name>",
                     description: "Run a specific binary",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Binary name", required: true, placeholder: "my_bin" },
+                        InputSpec {
+                            prompt: "Binary name",
+                            required: true,
+                            placeholder: "my_bin",
+                        },
                         Box::new(CommandAction::Execute(CargoCommand::Run {
-                            bin: Some(String::new()), args: None, features: None,
+                            bin: Some(String::new()),
+                            args: None,
+                            features: None,
                         })),
                     ),
                 },
@@ -392,9 +472,15 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                     name: "run --features",
                     description: "Run with specific features enabled",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Features (comma-separated)", required: true, placeholder: "serde,tokio" },
+                        InputSpec {
+                            prompt: "Features (comma-separated)",
+                            required: true,
+                            placeholder: "serde,tokio",
+                        },
                         Box::new(CommandAction::Execute(CargoCommand::Run {
-                            bin: None, args: None, features: Some(String::new()),
+                            bin: None,
+                            args: None,
+                            features: Some(String::new()),
                         })),
                     ),
                 },
@@ -558,16 +644,28 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                     name: "rustc",
                     description: "Compile a package, passing extra flags to the compiler",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Extra rustc flags (optional)", required: false, placeholder: "--emit=asm" },
-                        Box::new(CommandAction::Execute(CargoCommand::Rustc { args: Some(String::new()) })),
+                        InputSpec {
+                            prompt: "Extra rustc flags (optional)",
+                            required: false,
+                            placeholder: "--emit=asm",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Rustc {
+                            args: Some(String::new()),
+                        })),
                     ),
                 },
                 CommandNode {
                     name: "rustdoc",
                     description: "Build documentation, passing extra flags to rustdoc",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Extra rustdoc flags (optional)", required: false, placeholder: "--extend-css extra.css" },
-                        Box::new(CommandAction::Execute(CargoCommand::Rustdoc { args: Some(String::new()) })),
+                        InputSpec {
+                            prompt: "Extra rustdoc flags (optional)",
+                            required: false,
+                            placeholder: "--extend-css extra.css",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Rustdoc {
+                            args: Some(String::new()),
+                        })),
                     ),
                 },
             ]),
@@ -575,7 +673,8 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
         CommandNode {
             name: "Utilities",
             description: "Code quality and utility commands",
-            action: CommandAction::Submenu(vec![                CommandNode {
+            action: CommandAction::Submenu(vec![
+                CommandNode {
                     name: "fmt",
                     description: "Format all Rust files",
                     action: CommandAction::Execute(CargoCommand::Fmt),
@@ -583,17 +682,26 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                 CommandNode {
                     name: "clippy",
                     description: "Run the Clippy linter",
-                    action: CommandAction::Execute(CargoCommand::Clippy { fix: false, deny_warnings: false }),
+                    action: CommandAction::Execute(CargoCommand::Clippy {
+                        fix: false,
+                        deny_warnings: false,
+                    }),
                 },
                 CommandNode {
                     name: "clippy -- -D warnings",
                     description: "Run Clippy and deny all warnings",
-                    action: CommandAction::Execute(CargoCommand::Clippy { fix: false, deny_warnings: true }),
+                    action: CommandAction::Execute(CargoCommand::Clippy {
+                        fix: false,
+                        deny_warnings: true,
+                    }),
                 },
                 CommandNode {
                     name: "clippy --fix",
                     description: "Run Clippy and automatically apply fixes",
-                    action: CommandAction::Execute(CargoCommand::Clippy { fix: true, deny_warnings: false }),
+                    action: CommandAction::Execute(CargoCommand::Clippy {
+                        fix: true,
+                        deny_warnings: false,
+                    }),
                 },
                 CommandNode {
                     name: "fix",
@@ -615,8 +723,14 @@ pub static COMMAND_TREE: std::sync::LazyLock<Vec<CommandNode>> = std::sync::Lazy
                     name: "search <query>",
                     description: "Search crates.io for a crate",
                     action: CommandAction::RequiresInput(
-                        InputSpec { prompt: "Search query", required: true, placeholder: "serde" },
-                        Box::new(CommandAction::Execute(CargoCommand::Search { query: String::new() })),
+                        InputSpec {
+                            prompt: "Search query",
+                            required: true,
+                            placeholder: "serde",
+                        },
+                        Box::new(CommandAction::Execute(CargoCommand::Search {
+                            query: String::new(),
+                        })),
                     ),
                 },
                 CommandNode {
@@ -665,7 +779,13 @@ mod tests {
     #[test]
     fn test_build_debug() {
         assert_eq!(
-            CargoCommand::Build { release: false, target: None, features: None, no_default_features: false }.to_argv(),
+            CargoCommand::Build {
+                release: false,
+                target: None,
+                features: None,
+                no_default_features: false
+            }
+            .to_argv(),
             vec![os("cargo"), os("build")]
         );
     }
@@ -673,7 +793,13 @@ mod tests {
     #[test]
     fn test_build_release() {
         assert_eq!(
-            CargoCommand::Build { release: true, target: None, features: None, no_default_features: false }.to_argv(),
+            CargoCommand::Build {
+                release: true,
+                target: None,
+                features: None,
+                no_default_features: false
+            }
+            .to_argv(),
             vec![os("cargo"), os("build"), os("--release")]
         );
     }
@@ -698,7 +824,11 @@ mod tests {
     fn test_test_plain() {
         assert_eq!(
             CargoCommand::Test {
-                filter: None, doc: false, no_run: false, ignored: false, extra_args: None,
+                filter: None,
+                doc: false,
+                no_run: false,
+                ignored: false,
+                extra_args: None,
             }
             .to_argv(),
             vec![os("cargo"), os("test")]
@@ -709,7 +839,11 @@ mod tests {
     fn test_test_filter() {
         assert_eq!(
             CargoCommand::Test {
-                filter: Some("my_test".into()), doc: false, no_run: false, ignored: false, extra_args: None,
+                filter: Some("my_test".into()),
+                doc: false,
+                no_run: false,
+                ignored: false,
+                extra_args: None,
             }
             .to_argv(),
             vec![os("cargo"), os("test"), os("my_test")]
@@ -720,7 +854,11 @@ mod tests {
     fn test_test_doc() {
         assert_eq!(
             CargoCommand::Test {
-                filter: None, doc: true, no_run: false, ignored: false, extra_args: None,
+                filter: None,
+                doc: true,
+                no_run: false,
+                ignored: false,
+                extra_args: None,
             }
             .to_argv(),
             vec![os("cargo"), os("test"), os("--doc")]
@@ -738,7 +876,12 @@ mod tests {
     #[test]
     fn test_run_plain() {
         assert_eq!(
-            CargoCommand::Run { bin: None, args: None, features: None }.to_argv(),
+            CargoCommand::Run {
+                bin: None,
+                args: None,
+                features: None
+            }
+            .to_argv(),
             vec![os("cargo"), os("run")]
         );
     }
@@ -746,7 +889,12 @@ mod tests {
     #[test]
     fn test_run_bin() {
         assert_eq!(
-            CargoCommand::Run { bin: Some("my_bin".into()), args: None, features: None }.to_argv(),
+            CargoCommand::Run {
+                bin: Some("my_bin".into()),
+                args: None,
+                features: None
+            }
+            .to_argv(),
             vec![os("cargo"), os("run"), os("--bin"), os("my_bin")]
         );
     }
@@ -754,7 +902,12 @@ mod tests {
     #[test]
     fn test_run_args() {
         assert_eq!(
-            CargoCommand::Run { bin: None, args: Some("--foo".into()), features: None }.to_argv(),
+            CargoCommand::Run {
+                bin: None,
+                args: Some("--foo".into()),
+                features: None
+            }
+            .to_argv(),
             vec![os("cargo"), os("run"), os("--"), os("--foo")]
         );
     }
@@ -762,8 +915,20 @@ mod tests {
     #[test]
     fn test_run_bin_and_args() {
         assert_eq!(
-            CargoCommand::Run { bin: Some("b".into()), args: Some("a".into()), features: None }.to_argv(),
-            vec![os("cargo"), os("run"), os("--bin"), os("b"), os("--"), os("a")]
+            CargoCommand::Run {
+                bin: Some("b".into()),
+                args: Some("a".into()),
+                features: None
+            }
+            .to_argv(),
+            vec![
+                os("cargo"),
+                os("run"),
+                os("--bin"),
+                os("b"),
+                os("--"),
+                os("a")
+            ]
         );
     }
 
@@ -906,7 +1071,11 @@ mod tests {
     #[test]
     fn test_clippy() {
         assert_eq!(
-            CargoCommand::Clippy { fix: false, deny_warnings: false }.to_argv(),
+            CargoCommand::Clippy {
+                fix: false,
+                deny_warnings: false
+            }
+            .to_argv(),
             vec![os("cargo"), os("clippy")]
         );
     }
@@ -928,20 +1097,35 @@ mod tests {
         use proptest::prop_oneof;
 
         let strategy = prop_oneof![
-            proptest::bool::ANY.prop_map(|release| CargoCommand::Build { release, target: None, features: None, no_default_features: false }),
+            proptest::bool::ANY.prop_map(|release| CargoCommand::Build {
+                release,
+                target: None,
+                features: None,
+                no_default_features: false
+            }),
             Just(CargoCommand::Check),
             Just(CargoCommand::Clean),
             (
                 proptest::option::of("[a-z][a-z0-9]{0,10}"),
                 proptest::bool::ANY
             )
-                .prop_map(|(filter, doc)| CargoCommand::Test { filter, doc, no_run: false, ignored: false, extra_args: None }),
+                .prop_map(|(filter, doc)| CargoCommand::Test {
+                    filter,
+                    doc,
+                    no_run: false,
+                    ignored: false,
+                    extra_args: None
+                }),
             Just(CargoCommand::Bench),
             (
                 proptest::option::of("[a-z][a-z0-9]{0,10}"),
                 proptest::option::of("[a-z][a-z0-9]{0,10}")
             )
-                .prop_map(|(bin, args)| CargoCommand::Run { bin, args, features: None }),
+                .prop_map(|(bin, args)| CargoCommand::Run {
+                    bin,
+                    args,
+                    features: None
+                }),
             (
                 "[a-z][a-z0-9]{0,10}",
                 proptest::option::of("[a-z][a-z0-9]{0,10}")
@@ -958,7 +1142,10 @@ mod tests {
             Just(CargoCommand::Metadata),
             proptest::bool::ANY.prop_map(|open| CargoCommand::Doc { open }),
             Just(CargoCommand::Fmt),
-            Just(CargoCommand::Clippy { fix: false, deny_warnings: false }),
+            Just(CargoCommand::Clippy {
+                fix: false,
+                deny_warnings: false
+            }),
             Just(CargoCommand::Fix),
             Just(CargoCommand::Tree),
             "[a-z][a-z0-9]{0,10}".prop_map(|query| CargoCommand::Search { query }),
@@ -968,8 +1155,10 @@ mod tests {
             Just(CargoCommand::LocateProject),
             Just(CargoCommand::VerifyProject),
             Just(CargoCommand::Report),
-            proptest::option::of("[a-z][a-z0-9]{0,10}").prop_map(|args| CargoCommand::Rustc { args }),
-            proptest::option::of("[a-z][a-z0-9]{0,10}").prop_map(|args| CargoCommand::Rustdoc { args }),
+            proptest::option::of("[a-z][a-z0-9]{0,10}")
+                .prop_map(|args| CargoCommand::Rustc { args }),
+            proptest::option::of("[a-z][a-z0-9]{0,10}")
+                .prop_map(|args| CargoCommand::Rustdoc { args }),
         ];
 
         proptest::proptest!(|(cmd in strategy)| {
@@ -1019,26 +1208,52 @@ mod tests {
     #[test]
     fn test_all_argv_start_with_cargo() {
         let commands = vec![
-            CargoCommand::Build { release: false, target: None, features: None, no_default_features: false },
+            CargoCommand::Build {
+                release: false,
+                target: None,
+                features: None,
+                no_default_features: false,
+            },
             CargoCommand::Check,
             CargoCommand::Clean,
-            CargoCommand::Test { filter: None, doc: false, no_run: false, ignored: false, extra_args: None },
+            CargoCommand::Test {
+                filter: None,
+                doc: false,
+                no_run: false,
+                ignored: false,
+                extra_args: None,
+            },
             CargoCommand::Bench,
-            CargoCommand::Run { bin: None, args: None, features: None },
-            CargoCommand::Add { krate: "x".into(), version: None },
+            CargoCommand::Run {
+                bin: None,
+                args: None,
+                features: None,
+            },
+            CargoCommand::Add {
+                krate: "x".into(),
+                version: None,
+            },
             CargoCommand::Remove { krate: "x".into() },
             CargoCommand::Update { krate: None },
             CargoCommand::Publish { dry_run: false },
             CargoCommand::Package,
             CargoCommand::Login { token: "t".into() },
-            CargoCommand::Yank { krate: "x".into(), version: "1.0".into() },
+            CargoCommand::Yank {
+                krate: "x".into(),
+                version: "1.0".into(),
+            },
             CargoCommand::Metadata,
             CargoCommand::Doc { open: false },
             CargoCommand::Fmt,
-            CargoCommand::Clippy { fix: false, deny_warnings: false },
+            CargoCommand::Clippy {
+                fix: false,
+                deny_warnings: false,
+            },
             CargoCommand::Fix,
             CargoCommand::Tree,
-            CargoCommand::Search { query: "serde".into() },
+            CargoCommand::Search {
+                query: "serde".into(),
+            },
             CargoCommand::Logout,
             CargoCommand::Vendor,
             CargoCommand::GenerateLockfile,
