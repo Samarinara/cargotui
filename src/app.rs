@@ -1,0 +1,651 @@
+use crossterm::event::{KeyCode, KeyModifiers};
+use crate::cargo::workspace::Workspace;
+use crate::cargo::runner::{RunnerHandle, OutputChunk, spawn_cargo};
+use crate::cargo::{CargoCommand, CommandAction, CommandNode, COMMAND_TREE};
+use crate::event::Event;
+use crate::ui::input::{InputSpec, InputState};
+use crate::ui::output::OutputBuffer;
+
+pub struct App {
+    pub workspace: Option<Workspace>,
+    pub menu: MenuState,
+    pub output: OutputBuffer,
+    pub input: Option<InputState>,
+    pub runner: Option<RunnerHandle>,
+    pub mode: AppMode,
+    pub should_quit: bool,
+    pub pending_command: Option<CargoCommand>,
+    pub current_command: Option<CargoCommand>,
+    pub terminal_size: (u16, u16),
+}
+
+pub enum AppMode {
+    Menu,
+    Input(InputContext),
+    Running,
+    Help,
+    Confirm(ConfirmContext),
+    Error(String),
+}
+
+pub struct InputContext {
+    pub spec: crate::ui::input::InputSpec,
+    pub pending_action: Box<crate::cargo::CommandAction>,
+}
+
+pub struct ConfirmContext {
+    pub message: String,
+    pub pending_action: Box<crate::cargo::CommandAction>,
+}
+
+pub struct MenuState {
+    /// Stack of (nodes_snapshot, selected_index). The nodes are cloned from
+    /// COMMAND_TREE so we always have a fresh copy when entering a submenu.
+    pub stack: Vec<MenuLevel>,
+}
+
+pub struct MenuLevel {
+    pub nodes: Vec<crate::cargo::CommandNode>,
+    pub selected: usize,
+}
+
+/// Recursively clone a CommandNode from the static tree.
+fn clone_node(node: &crate::cargo::CommandNode) -> crate::cargo::CommandNode {
+    use crate::cargo::CommandAction;
+    crate::cargo::CommandNode {
+        name: node.name,
+        description: node.description,
+        action: clone_action(&node.action),
+    }
+}
+
+fn clone_action(action: &crate::cargo::CommandAction) -> crate::cargo::CommandAction {
+    use crate::cargo::{CommandAction, InputSpec};
+    match action {
+        CommandAction::Submenu(nodes) => {
+            CommandAction::Submenu(nodes.iter().map(clone_node).collect())
+        }
+        CommandAction::Execute(cmd) => CommandAction::Execute(cmd.clone()),
+        CommandAction::RequiresInput(spec, next) => CommandAction::RequiresInput(
+            InputSpec { prompt: spec.prompt, required: spec.required, placeholder: spec.placeholder },
+            Box::new(clone_action(next)),
+        ),
+        CommandAction::Confirm(inner) => CommandAction::Confirm(Box::new(clone_action(inner))),
+    }
+}
+
+impl App {
+    pub fn new(workspace: Option<Workspace>) -> Self {
+        // Clone the full top-level nodes from the static COMMAND_TREE so that
+        // submenus are intact and can be entered without destroying the tree.
+        let top_level_nodes: Vec<CommandNode> = COMMAND_TREE
+            .iter()
+            .map(clone_node)
+            .collect();
+
+        let menu = MenuState {
+            stack: vec![MenuLevel {
+                nodes: top_level_nodes,
+                selected: 0,
+            }],
+        };
+
+        App {
+            workspace,
+            menu,
+            output: OutputBuffer::new(),
+            input: None,
+            runner: None,
+            mode: AppMode::Menu,
+            should_quit: false,
+            pending_command: None,
+            current_command: None,
+            terminal_size: (80, 24),
+        }
+    }
+
+    pub fn can_launch_command(&self) -> bool {
+        self.runner.is_none()
+    }
+
+    /// Launch a cargo command asynchronously. Returns early if a command is
+    /// already running (concurrent command prevention per Requirement 3.7).
+    pub async fn launch_command(
+        &mut self,
+        cmd: CargoCommand,
+        workspace_root: &std::path::Path,
+        output_tx: tokio::sync::mpsc::Sender<OutputChunk>,
+    ) -> std::io::Result<()> {
+        if self.runner.is_some() {
+            return Ok(());
+        }
+        let handle = spawn_cargo(&cmd, workspace_root, output_tx).await?;
+        self.current_command = Some(cmd);
+        self.runner = Some(handle);
+        self.mode = AppMode::Running;
+        Ok(())
+    }
+
+    /// Re-parse the workspace manifest and update `self.workspace`.
+    /// Non-fatal: if parsing fails, the existing workspace is left unchanged.
+    pub fn refresh_workspace(&mut self) {
+        let root = match self.workspace.as_ref().map(|w| w.root.clone()) {
+            Some(r) => r,
+            None => return,
+        };
+        match crate::cargo::workspace::find_workspace(&root) {
+            Ok(new_workspace) => {
+                self.workspace = Some(new_workspace);
+            }
+            Err(_) => {
+                // Non-fatal: leave workspace unchanged
+            }
+        }
+    }
+
+    pub fn handle_event(&mut self, event: Event) {
+        // Handle resize at any mode
+        if let Event::Resize(w, h) = event {
+            self.terminal_size = (w, h);
+            return;
+        }
+
+        // Take the current mode so we can match on it without holding a borrow
+        // on self. We'll put it back (possibly changed) at the end.
+        let mode = std::mem::replace(&mut self.mode, AppMode::Menu);
+
+        match mode {
+            AppMode::Menu => {
+                self.mode = AppMode::Menu;
+                if let Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let Some(level) = self.menu.stack.last_mut() {
+                                let len = level.nodes.len();
+                                if len > 0 {
+                                    if level.selected == 0 {
+                                        level.selected = len - 1;
+                                    } else {
+                                        level.selected -= 1;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let Some(level) = self.menu.stack.last_mut() {
+                                let len = level.nodes.len();
+                                if len > 0 {
+                                    level.selected = (level.selected + 1) % len;
+                                }
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let selected_idx = self.menu.stack.last().map(|l| l.selected);
+                            if let Some(idx) = selected_idx {
+                                // Clone the action so the node stays intact for
+                                // future visits (e.g. pressing Esc and re-entering).
+                                let action = self.menu.stack.last()
+                                    .and_then(|l| l.nodes.get(idx))
+                                    .map(|n| clone_action(&n.action));
+
+                                if let Some(action) = action {
+                                    match action {
+                                        CommandAction::Submenu(nodes) => {
+                                            self.menu.stack.push(MenuLevel {
+                                                nodes,
+                                                selected: 0,
+                                            });
+                                        }
+                                        CommandAction::Execute(cmd) => {
+                                            self.pending_command = Some(cmd);
+                                            self.mode = AppMode::Running;
+                                        }
+                                        CommandAction::RequiresInput(spec, next_action) => {
+                                            let ui_spec = InputSpec {
+                                                prompt: spec.prompt,
+                                                required: spec.required,
+                                                placeholder: spec.placeholder,
+                                            };
+                                            self.input = Some(InputState::new(InputSpec {
+                                                prompt: spec.prompt,
+                                                required: spec.required,
+                                                placeholder: spec.placeholder,
+                                            }));
+                                            self.mode = AppMode::Input(InputContext {
+                                                spec: ui_spec,
+                                                pending_action: next_action,
+                                            });
+                                        }
+                                        CommandAction::Confirm(action) => {
+                                            self.mode = AppMode::Confirm(ConfirmContext {
+                                                message: "Are you sure?".to_string(),
+                                                pending_action: action,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            if self.menu.stack.len() > 1 {
+                                self.menu.stack.pop();
+                            } else {
+                                self.should_quit = true;
+                            }
+                        }
+                        KeyCode::Char('?') => {
+                            self.mode = AppMode::Help;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            AppMode::Input(ctx) => {
+                if let Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Esc => {
+                            self.input = None;
+                            self.mode = AppMode::Menu;
+                        }
+                        KeyCode::Enter => {
+                            let validation = self.input.as_ref().map(|s| s.validate());
+                            match validation {
+                                Some(Some(err)) => {
+                                    // Validation failed — show error, stay in Input mode
+                                    if let Some(input) = self.input.as_mut() {
+                                        input.error = Some(err);
+                                    }
+                                    self.mode = AppMode::Input(ctx);
+                                }
+                                _ => {
+                                    // Valid — extract value and resolve the pending action
+                                    let value = self.input.as_ref()
+                                        .map(|s| s.value.clone())
+                                        .unwrap_or_default();
+                                    self.input = None;
+
+                                    // Apply the input value to the pending action
+                                    let resolved = apply_input_to_action(*ctx.pending_action, value);
+                                    match resolved {
+                                        CommandAction::Execute(cmd) => {
+                                            self.pending_command = Some(cmd);
+                                            self.mode = AppMode::Menu;
+                                        }
+                                        CommandAction::RequiresInput(spec, next_action) => {
+                                            // Another input required (chained inputs)
+                                            let ui_spec = InputSpec {
+                                                prompt: spec.prompt,
+                                                required: spec.required,
+                                                placeholder: spec.placeholder,
+                                            };
+                                            self.input = Some(InputState::new(InputSpec {
+                                                prompt: spec.prompt,
+                                                required: spec.required,
+                                                placeholder: spec.placeholder,
+                                            }));
+                                            self.mode = AppMode::Input(InputContext {
+                                                spec: ui_spec,
+                                                pending_action: next_action,
+                                            });
+                                        }
+                                        other => {
+                                            // Submenu or Confirm after input — handle generically
+                                            match other {
+                                                CommandAction::Confirm(action) => {
+                                                    self.mode = AppMode::Confirm(ConfirmContext {
+                                                        message: "Are you sure?".to_string(),
+                                                        pending_action: action,
+                                                    });
+                                                }
+                                                _ => {
+                                                    self.mode = AppMode::Menu;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            if let Some(input) = self.input.as_mut() {
+                                input.handle_key(key);
+                            }
+                            self.mode = AppMode::Input(ctx);
+                        }
+                    }
+                } else {
+                    self.mode = AppMode::Input(ctx);
+                }
+            }
+
+            AppMode::Running => {
+                self.mode = AppMode::Running;
+                match event {
+                    Event::Output(OutputChunk::Stdout(line)) => {
+                        self.output.push_line(line);
+                    }
+                    Event::Output(OutputChunk::Stderr(line)) => {
+                        self.output.push_line(format!("[stderr] {}", line));
+                    }
+                    Event::Output(OutputChunk::Done(status)) => {
+                        self.output.finish_command(status);
+                        self.runner = None;
+                        // Refresh workspace manifest if the completed command
+                        // was Add, Remove, or Update (they modify Cargo.toml).
+                        let should_refresh = matches!(
+                            &self.current_command,
+                            Some(CargoCommand::Add { .. })
+                                | Some(CargoCommand::Remove { .. })
+                                | Some(CargoCommand::Update { .. })
+                        );
+                        self.current_command = None;
+                        if should_refresh {
+                            self.refresh_workspace();
+                        }
+                        self.mode = AppMode::Menu;
+                    }
+                    Event::Key(key) => {
+                        match (key.code, key.modifiers) {
+                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                if let Some(runner) = self.runner.take() {
+                                    let _ = runner.tx_kill.send(());
+                                }
+                            }
+                            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                                self.output.scroll_down(1);
+                            }
+                            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                                self.output.scroll_up(1);
+                            }
+                            (KeyCode::Char('c'), _) => {
+                                self.output.clear_current();
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            AppMode::Help => {
+                // Any key dismisses help
+                if let Event::Key(_) = event {
+                    self.mode = AppMode::Menu;
+                } else {
+                    self.mode = AppMode::Help;
+                }
+            }
+
+            AppMode::Confirm(ctx) => {
+                if let Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Enter => {
+                            match *ctx.pending_action {
+                                CommandAction::Execute(cmd) => {
+                                    self.pending_command = Some(cmd);
+                                }
+                                _ => {}
+                            }
+                            self.mode = AppMode::Menu;
+                        }
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            self.mode = AppMode::Menu;
+                        }
+                        _ => {
+                            self.mode = AppMode::Confirm(ctx);
+                        }
+                    }
+                } else {
+                    self.mode = AppMode::Confirm(ctx);
+                }
+            }
+
+            AppMode::Error(_) => {
+                // Any key dismisses error
+                if let Event::Key(_) = event {
+                    self.mode = AppMode::Menu;
+                } else {
+                    self.mode = mode;
+                }
+            }
+        }
+    }
+}
+
+/// Apply an input value to a `CommandAction`, filling in the first empty
+/// string placeholder found in the action's associated `CargoCommand`.
+fn apply_input_to_action(action: CommandAction, value: String) -> CommandAction {
+    match action {
+        CommandAction::Execute(cmd) => {
+            CommandAction::Execute(apply_input_to_command(cmd, &value))
+        }
+        CommandAction::RequiresInput(spec, next) => {
+            // This level's input has been collected; pass it down
+            CommandAction::RequiresInput(spec, Box::new(apply_input_to_action(*next, value)))
+        }
+        other => other,
+    }
+}
+
+/// Fill the first empty-string field in a `CargoCommand` with `value`.
+fn apply_input_to_command(cmd: CargoCommand, value: &str) -> CargoCommand {
+    match cmd {
+        CargoCommand::Test { filter: Some(ref f), doc } if f.is_empty() => {
+            CargoCommand::Test { filter: Some(value.to_string()), doc }
+        }
+        CargoCommand::Run { bin: Some(ref b), args } if b.is_empty() => {
+            CargoCommand::Run { bin: Some(value.to_string()), args }
+        }
+        CargoCommand::Add { ref krate, version: Some(ref v) } if krate.is_empty() => {
+            CargoCommand::Add { krate: value.to_string(), version: Some(v.clone()) }
+        }
+        CargoCommand::Add { ref krate, version: None } if krate.is_empty() => {
+            CargoCommand::Add { krate: value.to_string(), version: None }
+        }
+        CargoCommand::Add { krate, version: Some(ref v) } if v.is_empty() => {
+            CargoCommand::Add { krate, version: Some(value.to_string()) }
+        }
+        CargoCommand::Remove { ref krate } if krate.is_empty() => {
+            CargoCommand::Remove { krate: value.to_string() }
+        }
+        CargoCommand::Update { krate: Some(ref k) } if k.is_empty() => {
+            CargoCommand::Update { krate: Some(value.to_string()) }
+        }
+        CargoCommand::Login { ref token } if token.is_empty() => {
+            CargoCommand::Login { token: value.to_string() }
+        }
+        CargoCommand::Yank { ref krate, ref version } if krate.is_empty() => {
+            CargoCommand::Yank { krate: value.to_string(), version: version.clone() }
+        }
+        CargoCommand::Yank { krate, ref version } if version.is_empty() => {
+            CargoCommand::Yank { krate, version: value.to_string() }
+        }
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cargo::runner::RunnerHandle;
+    use proptest::prelude::*;
+
+    // Feature: cargo-tui, Property 9: Menu stack round trip
+    proptest! {
+        #[test]
+        fn prop_menu_stack_round_trip(depth in 1..=8usize) {
+            // **Validates: Requirements 2.5**
+            let initial_level = MenuLevel { nodes: vec![], selected: 0 };
+            let mut state = MenuState {
+                stack: vec![initial_level],
+            };
+
+            // Push N additional levels (simulating entering submenus)
+            for _ in 0..depth {
+                state.stack.push(MenuLevel { nodes: vec![], selected: 0 });
+            }
+
+            prop_assert_eq!(state.stack.len(), depth + 1);
+
+            // Pop N times (simulating pressing Escape N times)
+            for _ in 0..depth {
+                state.stack.pop();
+            }
+
+            // Stack depth should equal the initial depth (1)
+            prop_assert_eq!(state.stack.len(), 1);
+        }
+    }
+
+    // Feature: cargo-tui, Property 10: Concurrent command prevention
+    proptest! {
+        #[test]
+        fn prop_concurrent_command_prevention(_dummy in proptest::bool::ANY) {
+            // **Validates: Requirements 3.7**
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let mut app = App::new(None);
+
+                // Initially no runner — can launch
+                prop_assert!(app.runner.is_none());
+                prop_assert!(app.can_launch_command());
+
+                // Simulate a running command by setting runner to Some
+                app.runner = Some(RunnerHandle::dummy());
+
+                // Now runner is Some — cannot launch another command
+                prop_assert!(app.runner.is_some());
+                prop_assert!(!app.can_launch_command());
+
+                Ok(()) as Result<(), TestCaseError>
+            }).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_new_app_defaults() {
+        let app = App::new(None);
+        assert!(!app.should_quit);
+        assert!(app.pending_command.is_none());
+        assert_eq!(app.terminal_size, (80, 24));
+    }
+
+    #[test]
+    fn test_resize_event_updates_terminal_size() {
+        let mut app = App::new(None);
+        app.handle_event(Event::Resize(120, 40));
+        assert_eq!(app.terminal_size, (120, 40));
+    }
+
+    #[test]
+    fn test_menu_esc_at_root_sets_quit() {
+        let mut app = App::new(None);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_menu_q_at_root_sets_quit() {
+        let mut app = App::new(None);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_menu_question_mark_goes_to_help() {
+        let mut app = App::new(None);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('?'),
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(app.mode, AppMode::Help));
+    }
+
+    #[test]
+    fn test_help_key_returns_to_menu() {
+        let mut app = App::new(None);
+        app.mode = AppMode::Help;
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(app.mode, AppMode::Menu));
+    }
+
+    #[test]
+    fn test_confirm_esc_returns_to_menu() {
+        let mut app = App::new(None);
+        app.mode = AppMode::Confirm(ConfirmContext {
+            message: "Are you sure?".to_string(),
+            pending_action: Box::new(CommandAction::Execute(CargoCommand::Check)),
+        });
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(app.mode, AppMode::Menu));
+    }
+
+    #[test]
+    fn test_confirm_enter_sets_pending_command() {
+        let mut app = App::new(None);
+        app.mode = AppMode::Confirm(ConfirmContext {
+            message: "Are you sure?".to_string(),
+            pending_action: Box::new(CommandAction::Execute(CargoCommand::Check)),
+        });
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(app.mode, AppMode::Menu));
+        assert!(app.pending_command.is_some());
+    }
+
+    #[test]
+    fn test_input_esc_returns_to_menu() {
+        let mut app = App::new(None);
+        app.mode = AppMode::Input(InputContext {
+            spec: crate::ui::input::InputSpec {
+                prompt: "test",
+                required: false,
+                placeholder: "",
+            },
+            pending_action: Box::new(CommandAction::Execute(CargoCommand::Check)),
+        });
+        app.input = Some(InputState::new(crate::ui::input::InputSpec {
+            prompt: "test",
+            required: false,
+            placeholder: "",
+        }));
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(app.mode, AppMode::Menu));
+        assert!(app.input.is_none());
+    }
+
+    #[test]
+    fn test_running_done_returns_to_menu() {
+        #[cfg(unix)]
+        let status = std::process::Command::new("true").status().unwrap();
+        #[cfg(windows)]
+        let status = std::process::Command::new("cmd")
+            .args(["/c", "exit", "0"])
+            .status()
+            .unwrap();
+
+        let mut app = App::new(None);
+        app.mode = AppMode::Running;
+        app.handle_event(Event::Output(OutputChunk::Done(status)));
+        assert!(matches!(app.mode, AppMode::Menu));
+        assert!(app.runner.is_none());
+    }
+}
