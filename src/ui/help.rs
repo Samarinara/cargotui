@@ -38,6 +38,9 @@ fn bindings_for_mode(mode: &AppMode) -> Vec<(&'static str, &'static str)> {
         AppMode::Input(_) => vec![
             ("Enter", "Submit input"),
             ("Esc", "Cancel"),
+            ("← / →", "Move cursor by character"),
+            ("Home / End", "Move to start / end"),
+            ("Delete", "Delete next character"),
             ("Ctrl+A", "Move cursor to start"),
             ("Ctrl+E", "Move cursor to end"),
             ("Ctrl+U", "Clear input"),
