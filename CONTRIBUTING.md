@@ -29,10 +29,10 @@ To check dependencies against RustSec advisories locally:
 
 ```sh
 cargo install cargo-audit --locked
-cargo audit
+cargo audit --deny warnings
 ```
 
 The dependency audit runs when manifests, the lockfile, or its workflow change.
 It also runs every Monday and can be started manually. Scheduled runs begin after
-the workflow reaches the default branch. Review audit warnings as well as errors.
+the workflow reaches the default branch. The audit fails on advisory warnings as well as vulnerabilities.
 Do not add advisory exceptions without documenting why the project is unaffected.

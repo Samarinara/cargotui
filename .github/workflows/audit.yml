@@ -2,6 +2,7 @@ name: Dependency audit
 
 on:
   push:
+    branches: [main]
     paths:
       - Cargo.toml
       - Cargo.lock
@@ -37,4 +38,4 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Check locked dependencies for known vulnerabilities
-        run: cargo audit
+        run: cargo audit --deny warnings
