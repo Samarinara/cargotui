@@ -34,6 +34,31 @@ impl InputState {
         self.error = None;
 
         match (key.code, key.modifiers) {
+            (KeyCode::Left, _) => {
+                if self.cursor > 0 {
+                    self.cursor = self.value[..self.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                }
+            }
+            (KeyCode::Right, _) => {
+                if let Some(next) = self.value[self.cursor..].chars().next() {
+                    self.cursor += next.len_utf8();
+                }
+            }
+            (KeyCode::Home, _) => {
+                self.cursor = 0;
+            }
+            (KeyCode::End, _) => {
+                self.cursor = self.value.len();
+            }
+            (KeyCode::Delete, _) => {
+                if self.cursor < self.value.len() {
+                    self.value.remove(self.cursor);
+                }
+            }
             (KeyCode::Backspace, _) => {
                 if self.cursor > 0 {
                     let prev_boundary = self.value[..self.cursor]
@@ -125,6 +150,49 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
+    #[test]
+    fn cursor_keys_edit_unicode_without_splitting_characters() {
+        let mut state = InputState::new(InputSpec {
+            prompt: "test",
+            required: false,
+            placeholder: "",
+        });
+        state.value = "aé🙂z".to_string();
+        state.cursor = state.value.len();
+
+        let press = |state: &mut InputState, code| {
+            state.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert!(state.value.is_char_boundary(state.cursor));
+        };
+
+        press(&mut state, KeyCode::Left);
+        assert_eq!(state.cursor, "aé🙂".len());
+        press(&mut state, KeyCode::Left);
+        assert_eq!(state.cursor, "aé".len());
+        press(&mut state, KeyCode::Delete);
+        assert_eq!(state.value, "aéz");
+        assert_eq!(state.cursor, "aé".len());
+
+        press(&mut state, KeyCode::Home);
+        assert_eq!(state.cursor, 0);
+        press(&mut state, KeyCode::Right);
+        assert_eq!(state.cursor, 1);
+        press(&mut state, KeyCode::Delete);
+        assert_eq!(state.value, "az");
+        assert_eq!(state.cursor, 1);
+
+        press(&mut state, KeyCode::End);
+        assert_eq!(state.cursor, state.value.len());
+        press(&mut state, KeyCode::Right);
+        assert_eq!(state.cursor, state.value.len());
+        press(&mut state, KeyCode::Backspace);
+        assert_eq!(state.value, "a");
+        assert_eq!(state.cursor, 1);
+        press(&mut state, KeyCode::Left);
+        press(&mut state, KeyCode::Left);
+        assert_eq!(state.cursor, 0);
+    }
+
     proptest! {
         // Feature: cargo-tui, Property 8: Cursor invariant
         // Validates: Requirements 10.2
@@ -133,6 +201,11 @@ mod tests {
             keys in {
                 let key_strategy = prop_oneof![
                     Just(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+                    Just(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)),
+                    Just(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+                    Just(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+                    Just(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)),
+                    Just(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)),
                     Just(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
                     Just(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL)),
                     Just(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
@@ -149,6 +222,7 @@ mod tests {
             for key in keys {
                 state.handle_key(key);
                 prop_assert!(state.cursor <= state.value.len());
+                prop_assert!(state.value.is_char_boundary(state.cursor));
             }
         }
 
