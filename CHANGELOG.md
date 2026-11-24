@@ -11,5 +11,5 @@
 
 ### Maintenance
 - Update Ratatui to 0.30.2 and Crossterm to 0.29. Set the Tokio minimum version to 1.53.3.
-- Refresh the dependency lockfile and resolve the RustSec advisories recorded in the previous release.
+- Refresh the dependency lockfile and resolve the RustSec advisories identified by the dependency audit.
 - Add GitHub Actions checks for formatting, Clippy, documentation, release builds, and tests on Linux, macOS, and Windows. Add a scheduled RustSec dependency audit.
