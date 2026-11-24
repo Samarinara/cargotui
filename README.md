@@ -50,7 +50,7 @@ cargo install cargotui
 ### From latest git version
 
 ```
-cargo install --git https://github.com/yourusername/cargotui
+cargo install --git https://github.com/Samarinara/cargotui
 ```
 
 ## Usage
