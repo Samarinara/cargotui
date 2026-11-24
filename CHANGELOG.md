@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 - 2026-11-24
+## 0.3.0 - Unreleased
 
 ### Added
 - Add Left and Right cursor movement, Home and End, and forward Delete to command input fields.
